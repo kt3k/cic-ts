@@ -7,12 +7,12 @@
 //
 // Run with:  deno run --allow-read demos/proof_check.ts
 
-import { Environment } from "../environment.ts";
-import { mkAxiom, mkTheorem } from "../declaration.ts";
-import { nameFromString } from "../name.ts";
-import { levelZero, mkLevelLit, mkLevelParam } from "../level.ts";
-import { type Expr, mkAppN, mkBVar, mkConst, mkNatLit, mkPi, mkSort } from "../expr.ts";
-import type { KernelError } from "../exception.ts";
+import { Environment } from "../kernel/environment.ts";
+import { mkAxiom, mkTheorem } from "../kernel/declaration.ts";
+import { nameFromString } from "../kernel/name.ts";
+import { levelZero, mkLevelLit, mkLevelParam } from "../kernel/level.ts";
+import { type Expr, mkAppN, mkBVar, mkConst, mkNatLit, mkPi, mkSort } from "../kernel/expr.ts";
+import type { KernelError } from "../kernel/exception.ts";
 
 const lit1 = mkLevelLit(1);
 const type1 = mkSort(lit1); // Type
