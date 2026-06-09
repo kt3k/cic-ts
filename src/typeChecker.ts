@@ -20,23 +20,33 @@ import {
   mkConst,
   mkFVar,
   mkLambda,
+  mkNatLit,
   mkPi,
+  mkProj,
   mkSort,
 } from "./expr.ts";
 import { type Level, levelIsEquiv, levelZero, mkLevelIMaxSmart, mkLevelSucc } from "./level.ts";
 import { mkNumName, type Name, nameEq, nameFromString, nameToString } from "./name.ts";
 import { abstract, instantiate1, instantiateLevelParams, liftLooseBVars } from "./instantiate.ts";
 import { LocalContext } from "./localContext.ts";
-import { constValue, isUnfoldable } from "./declaration.ts";
+import { constValue, isUnfoldable, recursorMajorIdx, type RecursorVal } from "./declaration.ts";
 import { kernelError } from "./exception.ts";
 import type { Environment } from "./environment.ts";
 
 const natName = nameFromString("Nat");
 const stringName = nameFromString("String");
+const natZeroName = nameFromString("Nat.zero");
+const natSuccName = nameFromString("Nat.succ");
 const freshPrefix = nameFromString("_kfv");
 
 function literalType(lit: Literal): Expr {
   return mkConst(lit.kind === "natVal" ? natName : stringName);
+}
+
+/** Expand a `Nat` literal into constructor form so a recursor can reduce on it. */
+function natLitToConstructor(value: bigint): Expr {
+  if (value === 0n) return mkConst(natZeroName);
+  return mkApp(mkConst(natSuccName), mkNatLit(value - 1n));
 }
 
 function levelsIsEquiv(as: readonly Level[], bs: readonly Level[]): boolean {
@@ -56,6 +66,50 @@ export class TypeChecker {
   private mkFreshFVar(): Expr & { kind: "fvar" } {
     const id = mkNumName(freshPrefix, BigInt(this.freshCounter++));
     return mkFVar(id) as Expr & { kind: "fvar" };
+  }
+
+  // --- Local-context helpers (used by inductive construction, Phase 3) ------
+
+  /** Introduce a fresh free variable into the (persistent) local context. */
+  mkLocalDecl(name: Name, type: Expr, value?: Expr): Expr {
+    const fv = this.mkFreshFVar();
+    const decl = value === undefined
+      ? { fvarId: fv.id, name, type }
+      : { fvarId: fv.id, name, type, value };
+    this.lctx = this.lctx.push(decl);
+    return fv;
+  }
+
+  /** The recorded type of a free variable. */
+  localType(fv: Expr): Expr {
+    if (fv.kind !== "fvar") return kernelError("other", "localType: not an fvar");
+    const decl = this.lctx.find(fv.id);
+    if (decl === undefined) return kernelError("other", "localType: unknown fvar");
+    return decl.type;
+  }
+
+  /** Build `(fvars) → body`, abstracting the free variables into Pi binders. */
+  mkForallFVars(fvars: readonly Expr[], body: Expr): Expr {
+    let r = abstract(body, fvars);
+    for (let i = fvars.length - 1; i >= 0; i--) {
+      const fv = fvars[i]!;
+      if (fv.kind !== "fvar") return kernelError("other", "mkForallFVars: not an fvar");
+      const ty = abstract(this.localType(fv), fvars.slice(0, i));
+      r = mkPi(this.lctx.find(fv.id)!.name, ty, r);
+    }
+    return r;
+  }
+
+  /** Build `fun (fvars) => body`, abstracting the free variables into lambdas. */
+  mkLambdaFVars(fvars: readonly Expr[], body: Expr): Expr {
+    let r = abstract(body, fvars);
+    for (let i = fvars.length - 1; i >= 0; i--) {
+      const fv = fvars[i]!;
+      if (fv.kind !== "fvar") return kernelError("other", "mkLambdaFVars: not an fvar");
+      const ty = abstract(this.localType(fv), fvars.slice(0, i));
+      r = mkLambda(this.lctx.find(fv.id)!.name, ty, r);
+    }
+    return r;
   }
 
   /** Run `fn` with a fresh free variable bound to (`name` : `type` [:= `value`]). */
@@ -108,8 +162,44 @@ export class TypeChecker {
       case "let":
         return this.inferLet(e);
       case "proj":
-        return kernelError("unsupported", "infer: projections require inductive types (Phase 3)");
+        return this.inferProj(e);
     }
+  }
+
+  private inferProj(e: Expr & { kind: "proj" }): Expr {
+    const structType = this.whnf(this.infer(e.expr));
+    const fn = getAppFn(structType);
+    const args = getAppArgs(structType);
+    if (fn.kind !== "const") {
+      return kernelError("typeMismatch", "infer: projection of a non-structure");
+    }
+    const ind = this.env.find(fn.name);
+    if (ind === undefined || ind.kind !== "inductive" || ind.ctors.length !== 1) {
+      return kernelError(
+        "typeMismatch",
+        "infer: projection requires a single-constructor structure",
+      );
+    }
+    const ctorInfo = this.env.find(ind.ctors[0]!);
+    if (ctorInfo === undefined || ctorInfo.kind !== "constructor") {
+      return kernelError("other", "infer: missing constructor for projection");
+    }
+    let ctorType = instantiateLevelParams(ctorInfo.type, ctorInfo.levelParams, fn.levels);
+    // Apply the structure's parameters.
+    for (let i = 0; i < ind.numParams; i++) {
+      const pi = this.ensurePi(ctorType);
+      if (i >= args.length) {
+        return kernelError("typeMismatch", "infer: projection parameter missing");
+      }
+      ctorType = instantiate1(pi.body, args[i]!);
+    }
+    // Strip preceding fields, substituting projections of the same value.
+    const idx = Number(e.idx);
+    for (let j = 0; j < idx; j++) {
+      const pi = this.ensurePi(ctorType);
+      ctorType = instantiate1(pi.body, mkProj(e.struct, BigInt(j), e.expr));
+    }
+    return this.ensurePi(ctorType).type;
   }
 
   private inferConst(name: Name, levels: readonly Level[]): Expr {
@@ -188,14 +278,27 @@ export class TypeChecker {
 
   // --- Weak head normal form (Section 5.2) ---------------------------------
 
-  /** Reduce `e` to weak head normal form (β/ζ + δ for definitions). */
+  /** Reduce `e` to weak head normal form (β/ζ, δ, ι, and projection). */
   whnf(e: Expr): Expr {
     let cur = e;
     for (;;) {
       const core = this.whnfCore(cur);
       const unfolded = this.unfoldDefinition(core);
-      if (unfolded === undefined) return core;
-      cur = unfolded;
+      if (unfolded !== undefined) {
+        cur = unfolded;
+        continue;
+      }
+      const reduced = this.reduceRecursor(core); // ι
+      if (reduced !== undefined) {
+        cur = reduced;
+        continue;
+      }
+      const projected = this.reduceProj(core);
+      if (projected !== undefined) {
+        cur = projected;
+        continue;
+      }
+      return core;
     }
   }
 
@@ -235,6 +338,82 @@ export class TypeChecker {
     if (value === undefined) return undefined;
     const body = instantiateLevelParams(value, ci.levelParams, fn.levels);
     return mkAppN(body, getAppArgs(e));
+  }
+
+  /** ι-reduce a recursor applied to a constructor (or Nat literal, or K-target). */
+  private reduceRecursor(e: Expr): Expr | undefined {
+    const recFn = getAppFn(e);
+    if (recFn.kind !== "const") return undefined;
+    const ci = this.env.find(recFn.name);
+    if (ci === undefined || ci.kind !== "recursor") return undefined;
+    const recArgs = getAppArgs(e);
+    const majorIdx = recursorMajorIdx(ci);
+    if (majorIdx >= recArgs.length) return undefined;
+
+    let major = recArgs[majorIdx]!;
+    if (ci.k) {
+      const k = this.toCnstrWhenK(ci, major);
+      if (k !== undefined) major = k;
+    }
+    major = this.whnf(major);
+    if (major.kind === "lit" && major.lit.kind === "natVal") {
+      major = natLitToConstructor(major.lit.value);
+    }
+
+    const majorFn = getAppFn(major);
+    if (majorFn.kind !== "const") return undefined;
+    const rule = ci.rules.find((r) => nameEq(r.ctor, majorFn.name));
+    if (rule === undefined) return undefined;
+    const majorArgs = getAppArgs(major);
+    if (rule.nfields > majorArgs.length) return undefined;
+    if (recFn.levels.length !== ci.levelParams.length) return undefined;
+
+    let rhs = instantiateLevelParams(rule.rhs, ci.levelParams, recFn.levels);
+    // Apply parameters, motives, and minor premises from the recursor spine.
+    const nPMM = ci.numParams + ci.numMotives + ci.numMinors;
+    rhs = mkAppN(rhs, recArgs.slice(0, nPMM));
+    // Apply the constructor's fields (skipping its parameters).
+    const nctorParams = majorArgs.length - rule.nfields;
+    rhs = mkAppN(rhs, majorArgs.slice(nctorParams));
+    // Re-apply any arguments that followed the major premise.
+    if (recArgs.length > majorIdx + 1) {
+      rhs = mkAppN(rhs, recArgs.slice(majorIdx + 1));
+    }
+    return rhs;
+  }
+
+  /** For K-like recursors, replace the major premise with its unique constructor. */
+  private toCnstrWhenK(rec: RecursorVal, major: Expr): Expr | undefined {
+    const type = this.whnf(this.infer(major));
+    const fn = getAppFn(type);
+    if (fn.kind !== "const" || !nameEq(fn.name, rec.all[0]!)) return undefined;
+    const newCtor = this.mkNullaryCtor(type, rec.numParams);
+    if (newCtor === undefined) return undefined;
+    if (!this.isDefEq(type, this.infer(newCtor))) return undefined;
+    return newCtor;
+  }
+
+  /** Build `Ctor params` for the single-constructor inductive in `type = I params …`. */
+  private mkNullaryCtor(type: Expr, numParams: number): Expr | undefined {
+    const fn = getAppFn(type);
+    if (fn.kind !== "const") return undefined;
+    const ci = this.env.find(fn.name);
+    if (ci === undefined || ci.kind !== "inductive" || ci.ctors.length !== 1) return undefined;
+    return mkAppN(mkConst(ci.ctors[0]!, fn.levels), getAppArgs(type).slice(0, numParams));
+  }
+
+  /** Reduce a projection applied to a constructor application. */
+  private reduceProj(e: Expr): Expr | undefined {
+    if (e.kind !== "proj") return undefined;
+    const c = this.whnf(e.expr);
+    const fn = getAppFn(c);
+    if (fn.kind !== "const") return undefined;
+    const ci = this.env.find(fn.name);
+    if (ci === undefined || ci.kind !== "constructor") return undefined;
+    const args = getAppArgs(c);
+    const idx = ci.numParams + Number(e.idx);
+    if (idx >= args.length) return undefined;
+    return args[idx];
   }
 
   // --- Definitional equality (Section 5.3) ---------------------------------

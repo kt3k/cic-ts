@@ -5,10 +5,11 @@
 // checked before it is admitted. The environment is immutable — `addDecl`
 // returns an extended copy.
 
-import type { ConstantInfo, Declaration } from "./declaration.ts";
+import type { ConstantInfo, Declaration, InductiveDeclaration } from "./declaration.ts";
 import { type Name, nameToString } from "./name.ts";
 import { kernelError } from "./exception.ts";
 import { TypeChecker } from "./typeChecker.ts";
+import { addInductive } from "./inductive.ts";
 
 export class Environment {
   constructor(private readonly consts: ReadonlyMap<string, ConstantInfo> = new Map()) {}
@@ -40,8 +41,22 @@ export class Environment {
     if (decl.kind !== "axiom") {
       tc.check(decl.value, decl.type);
     }
+    return this.addConstantUnchecked(decl);
+  }
+
+  /**
+   * Add a constant to the environment *without* type checking it. Used by the
+   * inductive elaborator, which checks declarations as it builds them and emits
+   * the inductive/constructor/recursor constants directly.
+   */
+  addConstantUnchecked(ci: ConstantInfo): Environment {
     const m = new Map(this.consts);
-    m.set(nameToString(decl.name), decl);
+    m.set(nameToString(ci.name), ci);
     return new Environment(m);
+  }
+
+  /** Type-check an inductive declaration and return an extended environment. */
+  addInductive(decl: InductiveDeclaration): Environment {
+    return addInductive(this, decl);
   }
 }

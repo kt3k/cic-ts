@@ -43,8 +43,89 @@ export interface OpaqueVal {
   readonly value: Expr;
 }
 
+// --- Inductive types (Phase 3) ---------------------------------------------
+
+/** The stored info for an inductive type. */
+export interface InductiveVal {
+  readonly kind: "inductive";
+  readonly name: Name;
+  readonly levelParams: readonly Name[];
+  readonly type: Expr;
+  readonly numParams: number;
+  readonly numIndices: number;
+  readonly all: readonly Name[]; // all inductives in the mutual block (just `name` here)
+  readonly ctors: readonly Name[];
+  readonly isRec: boolean;
+  readonly isUnsafe: boolean;
+}
+
+/** The stored info for a constructor. */
+export interface ConstructorVal {
+  readonly kind: "constructor";
+  readonly name: Name;
+  readonly levelParams: readonly Name[];
+  readonly type: Expr;
+  readonly induct: Name;
+  readonly cidx: number;
+  readonly numParams: number;
+  readonly numFields: number;
+  readonly isUnsafe: boolean;
+}
+
+/** One ι-reduction rule of a recursor: how it computes on a given constructor. */
+export interface RecursorRule {
+  readonly ctor: Name;
+  readonly nfields: number;
+  readonly rhs: Expr;
+}
+
+/** The stored info for a recursor (eliminator). */
+export interface RecursorVal {
+  readonly kind: "recursor";
+  readonly name: Name;
+  readonly levelParams: readonly Name[];
+  readonly type: Expr;
+  readonly all: readonly Name[];
+  readonly numParams: number;
+  readonly numIndices: number;
+  readonly numMotives: number;
+  readonly numMinors: number;
+  readonly rules: readonly RecursorRule[];
+  readonly k: boolean; // K-like reduction (e.g. Eq)
+  readonly isUnsafe: boolean;
+}
+
 export type Declaration = AxiomVal | DefinitionVal | TheoremVal | OpaqueVal;
-export type ConstantInfo = Declaration;
+export type ConstantInfo =
+  | Declaration
+  | InductiveVal
+  | ConstructorVal
+  | RecursorVal;
+
+// --- Inductive declaration (input to Environment.addInductive) --------------
+
+export interface Constructor {
+  readonly name: Name;
+  readonly type: Expr;
+}
+
+export interface InductiveType {
+  readonly name: Name;
+  readonly type: Expr;
+  readonly ctors: readonly Constructor[];
+}
+
+export interface InductiveDeclaration {
+  readonly levelParams: readonly Name[];
+  readonly numParams: number;
+  readonly types: readonly InductiveType[];
+  readonly isUnsafe: boolean;
+}
+
+/** The index at which a recursor's major premise sits in its argument spine. */
+export function recursorMajorIdx(rec: RecursorVal): number {
+  return rec.numParams + rec.numMotives + rec.numMinors + rec.numIndices;
+}
 
 /** Whether the kernel may δ-unfold this constant during reduction. */
 export function isUnfoldable(ci: ConstantInfo): boolean {
@@ -53,7 +134,14 @@ export function isUnfoldable(ci: ConstantInfo): boolean {
 
 /** The defining value, if any (definitions, theorems, opaque constants). */
 export function constValue(ci: ConstantInfo): Expr | undefined {
-  return ci.kind === "axiom" ? undefined : ci.value;
+  switch (ci.kind) {
+    case "definition":
+    case "theorem":
+    case "opaque":
+      return ci.value;
+    default:
+      return undefined;
+  }
 }
 
 // --- Constructors -----------------------------------------------------------

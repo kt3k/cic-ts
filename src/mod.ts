@@ -11,3 +11,4 @@ export * from "./declaration.ts";
 export * from "./localContext.ts";
 export * from "./environment.ts";
 export * from "./typeChecker.ts";
+export * from "./inductive.ts";
