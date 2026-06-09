@@ -105,7 +105,7 @@ export function levelEq(a: Level, b: Level): boolean {
 // to structurally equal forms.
 
 /** Whether the level contains a universe parameter. */
-export function levelHasParam(level: Level): boolean {
+function levelHasParam(level: Level): boolean {
   switch (level.kind) {
     case "zero":
     case "mvar":
@@ -121,7 +121,7 @@ export function levelHasParam(level: Level): boolean {
 }
 
 /** Tree depth: leaves are 0, `succ`/`max`/`imax` add one over their children. */
-export function levelDepth(level: Level): number {
+function levelDepth(level: Level): number {
   switch (level.kind) {
     case "zero":
     case "param":
@@ -164,7 +164,7 @@ export function isZeroLevel(level: Level): boolean {
 }
 
 /** Whether the level is syntactically `1` (= `succ 0`). */
-export function isOneLevel(level: Level): boolean {
+function isOneLevel(level: Level): boolean {
   return level.kind === "succ" && level.level.kind === "zero";
 }
 
@@ -203,7 +203,7 @@ const levelKindRank: Record<Level["kind"], number> = {
 };
 
 /** `max` with the kernel's algebraic simplifications. */
-export function mkLevelMaxSmart(l1: Level, l2: Level): Level {
+function mkLevelMaxSmart(l1: Level, l2: Level): Level {
   if (isExplicit(l1) && isExplicit(l2)) {
     return levelDepth(l1) >= levelDepth(l2) ? l1 : l2;
   }
@@ -373,7 +373,7 @@ export function levelLeq(l1: Level, l2: Level): boolean {
 // --- Substitution -----------------------------------------------------------
 
 /** Generic bottom-up rewrite: `f` returns a replacement, or `null` to recurse. */
-export function levelReplace(level: Level, f: (l: Level) => Level | null): Level {
+function levelReplace(level: Level, f: (l: Level) => Level | null): Level {
   const r = f(level);
   if (r !== null) return r;
   switch (level.kind) {
