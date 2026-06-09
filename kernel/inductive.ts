@@ -7,10 +7,19 @@
 // declares the recursor (motive, minor premises, ι-reduction rules), including
 // large/small elimination and K-like reduction.
 
-import { type Expr, exprEq, getAppArgs, getAppFn, mkApp, mkAppN, mkConst, mkSort } from "./expr.ts";
+import {
+  type Expr,
+  exprEq,
+  getAppArgs,
+  getAppFn,
+  instantiate1,
+  mkApp,
+  mkAppN,
+  mkConst,
+  mkSort,
+} from "./expr.ts";
 import { isNotZero, isZeroLevel, type Level, levelGeq, levelZero, mkLevelParam } from "./level.ts";
 import { mkNumName, mkStrName, type Name, nameEq, nameFromString, nameToString } from "./name.ts";
-import { instantiate1 } from "./instantiate.ts";
 import { kernelError } from "./exception.ts";
 import type {
   ConstructorVal,

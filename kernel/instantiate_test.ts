@@ -1,14 +1,20 @@
 import { assert, assertEquals } from "@std/assert";
 import { nameFromString } from "./name.ts";
-import { type Expr, exprEq, mkApp, mkBVar, mkConst, mkFVar, mkLambda } from "./expr.ts";
 import {
   abstract,
+  type Expr,
+  exprEq,
   instantiate,
   instantiate1,
   instantiateRev,
   liftLooseBVars,
   lowerLooseBVars,
-} from "./instantiate.ts";
+  mkApp,
+  mkBVar,
+  mkConst,
+  mkFVar,
+  mkLambda,
+} from "./expr.ts";
 
 const nat = mkConst(nameFromString("Nat"));
 const v = mkConst(nameFromString("v"));
