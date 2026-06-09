@@ -2,11 +2,13 @@
   "name": "@kt3k/cic",
   "version": "0.0.0",
   "exports": "./kernel/mod.ts",
+  "exclude": [".claude"],
   "imports": {
     "@std/assert": "jsr:@std/assert@1"
   },
   "tasks": {
     "test": "deno test",
+    "run": "deno run --allow-read parser/cli.ts",
     "check": "deno check kernel/*.ts parser/*.ts demos/*.ts"
   },
   "compilerOptions": {
