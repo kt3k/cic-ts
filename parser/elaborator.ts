@@ -80,7 +80,7 @@ export function elabLevel(l: SLevel, uparams: readonly string[]): Level {
 export function elabExpr(e: SExpr, scope: readonly string[], uparams: readonly string[]): Expr {
   switch (e.kind) {
     case "ident": {
-      const idx = lastIndexOf(scope, e.name);
+      const idx = scope.lastIndexOf(e.name);
       if (idx >= 0) {
         if (e.univs && e.univs.length > 0) {
           throw new ParseError(e.pos, `local variable '${e.name}' cannot take universe arguments`);
@@ -110,10 +110,7 @@ export function elabExpr(e: SExpr, scope: readonly string[], uparams: readonly s
     case "pi": {
       const { items, scope: inner } = elabTelescope(e.binders, scope, uparams);
       const body = elabExpr(e.body, inner, uparams);
-      const build = e.kind === "lam" ? mkLambda : mkPi;
-      let r = body;
-      for (let i = items.length - 1; i >= 0; i--) r = build(items[i]!.name, items[i]!.type, r);
-      return r;
+      return foldTelescope(items, body, e.kind === "lam" ? mkLambda : mkPi);
     }
   }
 }
@@ -144,15 +141,14 @@ function elabTelescope(
   return { items, scope: s };
 }
 
-function piTelescope(items: readonly TeleItem[], body: Expr): Expr {
+/** Wrap `body` in the telescope's binders (innermost last), using `build`. */
+function foldTelescope(
+  items: readonly TeleItem[],
+  body: Expr,
+  build: (name: Name, type: Expr, body: Expr) => Expr,
+): Expr {
   let r = body;
-  for (let i = items.length - 1; i >= 0; i--) r = mkPi(items[i]!.name, items[i]!.type, r);
-  return r;
-}
-
-function lambdaTelescope(items: readonly TeleItem[], body: Expr): Expr {
-  let r = body;
-  for (let i = items.length - 1; i >= 0; i--) r = mkLambda(items[i]!.name, items[i]!.type, r);
+  for (let i = items.length - 1; i >= 0; i--) r = build(items[i]!.name, items[i]!.type, r);
   return r;
 }
 
@@ -164,7 +160,7 @@ export function elaborate(cmd: SCommand): ElabResult {
       const type = elabExpr(cmd.type, [], cmd.univParams);
       return {
         kind: "decl",
-        decl: mkAxiom(nameFromString(cmd.name), levelParams(cmd.univParams), type),
+        decl: mkAxiom(nameFromString(cmd.name), cmd.univParams.map(nameFromString), type),
       };
     }
     case "def":
@@ -183,10 +179,10 @@ export function elaborate(cmd: SCommand): ElabResult {
 function elabDefLike(cmd: SCommand & { kind: "def" | "theorem" | "opaque" }): Declaration {
   const up = cmd.univParams;
   const { items, scope } = elabTelescope(cmd.binders, [], up);
-  const type = piTelescope(items, elabExpr(cmd.type, scope, up));
-  const value = lambdaTelescope(items, elabExpr(cmd.value, scope, up));
+  const type = foldTelescope(items, elabExpr(cmd.type, scope, up), mkPi);
+  const value = foldTelescope(items, elabExpr(cmd.value, scope, up), mkLambda);
   const name = nameFromString(cmd.name);
-  const lp = levelParams(up);
+  const lp = up.map(nameFromString);
   if (cmd.kind === "def") return mkDefinition(name, lp, type, value);
   if (cmd.kind === "theorem") return mkTheorem(name, lp, type, value);
   return mkOpaque(name, lp, type, value);
@@ -195,30 +191,17 @@ function elabDefLike(cmd: SCommand & { kind: "def" | "theorem" | "opaque" }): De
 function elabInductive(cmd: SCommand & { kind: "inductive" }): InductiveDeclaration {
   const up = cmd.univParams;
   const { items: params, scope } = elabTelescope(cmd.params, [], up);
-  const indType = piTelescope(params, elabExpr(cmd.type, scope, up));
+  const indType = foldTelescope(params, elabExpr(cmd.type, scope, up), mkPi);
   const indName = nameFromString(cmd.name);
   const ctors = cmd.ctors.map((c) => ({
     // qualify the constructor name with the inductive's name (refl → Eq.refl)
     name: nameFromString(`${cmd.name}.${c.name}`),
-    type: piTelescope(params, elabExpr(c.type, scope, up)),
+    type: foldTelescope(params, elabExpr(c.type, scope, up), mkPi),
   }));
   return {
-    levelParams: levelParams(up),
+    levelParams: up.map(nameFromString),
     numParams: params.length,
     isUnsafe: false,
     types: [{ name: indName, type: indType, ctors }],
   };
-}
-
-// --- helpers ----------------------------------------------------------------
-
-function levelParams(names: readonly string[]): Name[] {
-  return names.map(nameFromString);
-}
-
-function lastIndexOf(xs: readonly string[], x: string): number {
-  for (let i = xs.length - 1; i >= 0; i--) {
-    if (xs[i] === x) return i;
-  }
-  return -1;
 }
