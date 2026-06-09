@@ -7,7 +7,7 @@
   },
   "tasks": {
     "test": "deno test",
-    "check": "deno check kernel/*.ts demos/*.ts"
+    "check": "deno check kernel/*.ts parser/*.ts demos/*.ts"
   },
   "compilerOptions": {
     "strict": true,
