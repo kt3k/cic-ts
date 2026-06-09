@@ -19,8 +19,6 @@ export type Literal =
 /** Lightweight metadata map. Semantically transparent; ignored by the kernel. */
 export type KVMap = ReadonlyMap<string, string | bigint | boolean>;
 
-const EMPTY_KVMAP: KVMap = new Map();
-
 /**
  * Cache flags carried by every `Expr` node (SPEC.md Section 2.3).
  *
@@ -245,7 +243,7 @@ export function mkLet(name: Name, type: Expr, value: Expr, body: Expr): Expr {
 }
 
 /** A literal. */
-export function mkLit(lit: Literal): Expr {
+function mkLit(lit: Literal): Expr {
   const payload = lit.kind === "natVal" ? hashBigInt(lit.value) : hashString(lit.value);
   return {
     kind: "lit",
@@ -391,16 +389,3 @@ export function getAppArgs(e: Expr): Expr[] {
   args.reverse();
   return args;
 }
-
-/** The number of arguments in an application spine. */
-export function getAppNumArgs(e: Expr): number {
-  let n = 0;
-  let cur = e;
-  while (cur.kind === "app") {
-    n++;
-    cur = cur.fn;
-  }
-  return n;
-}
-
-export { EMPTY_KVMAP };

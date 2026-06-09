@@ -85,11 +85,6 @@ export function nameCmp(a: Name, b: Name): number {
   }
 }
 
-/** `a < b` in the total order of {@link nameCmp}. */
-export function nameLt(a: Name, b: Name): boolean {
-  return nameCmp(a, b) < 0;
-}
-
 /** Structural equality. Uses the precomputed hash for a cheap mismatch check. */
 export function nameEq(a: Name, b: Name): boolean {
   if (a === b) return true;
