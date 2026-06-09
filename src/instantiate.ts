@@ -9,8 +9,20 @@
 // `abstract`, `fvars[i]` becomes `BVar (n - 1 - i)`, so the last free variable
 // becomes the innermost bound variable.
 
-import { type Expr, mkApp, mkBVar, mkLambda, mkLet, mkMData, mkPi, mkProj } from "./expr.ts";
-import { nameEq } from "./name.ts";
+import {
+  type Expr,
+  mkApp,
+  mkBVar,
+  mkConst,
+  mkLambda,
+  mkLet,
+  mkMData,
+  mkPi,
+  mkProj,
+  mkSort,
+} from "./expr.ts";
+import { type Name, nameEq } from "./name.ts";
+import { type Level, levelInstantiate } from "./level.ts";
 
 /**
  * Add `d` to every loose bound variable with index `>= s`. Binders encountered
@@ -189,4 +201,40 @@ export function abstract(e: Expr, fvars: readonly Expr[]): Expr {
     }
   };
   return go(e, 0);
+}
+
+/**
+ * Substitute universe parameters throughout an expression: every `Sort` and
+ * `Const` level is rewritten with {@link levelInstantiate}. Used to specialize a
+ * universe-polymorphic constant's type/value at a use site.
+ */
+export function instantiateLevelParams(
+  e: Expr,
+  params: readonly Name[],
+  args: readonly Level[],
+): Expr {
+  if (params.length === 0) return e;
+  const go = (m: Expr): Expr => {
+    switch (m.kind) {
+      case "sort":
+        return mkSort(levelInstantiate(m.level, params, args));
+      case "const":
+        return mkConst(m.name, m.levels.map((l) => levelInstantiate(l, params, args)));
+      case "app":
+        return mkApp(go(m.fn), go(m.arg));
+      case "lam":
+        return mkLambda(m.name, go(m.type), go(m.body), m.info);
+      case "pi":
+        return mkPi(m.name, go(m.type), go(m.body), m.info);
+      case "let":
+        return mkLet(m.name, go(m.type), go(m.value), go(m.body));
+      case "mdata":
+        return mkMData(m.data, go(m.expr));
+      case "proj":
+        return mkProj(m.struct, m.idx, go(m.expr));
+      default:
+        return m;
+    }
+  };
+  return go(e);
 }

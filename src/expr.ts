@@ -372,4 +372,36 @@ export function exprEq(a: Expr, b: Expr): boolean {
   }
 }
 
+// --- Application spine helpers ----------------------------------------------
+
+/** The head of an application spine: `getAppFn(f a b) = f`. */
+export function getAppFn(e: Expr): Expr {
+  let cur = e;
+  while (cur.kind === "app") cur = cur.fn;
+  return cur;
+}
+
+/** The arguments of an application spine, left to right: `getAppArgs(f a b) = [a, b]`. */
+export function getAppArgs(e: Expr): Expr[] {
+  const args: Expr[] = [];
+  let cur = e;
+  while (cur.kind === "app") {
+    args.push(cur.arg);
+    cur = cur.fn;
+  }
+  args.reverse();
+  return args;
+}
+
+/** The number of arguments in an application spine. */
+export function getAppNumArgs(e: Expr): number {
+  let n = 0;
+  let cur = e;
+  while (cur.kind === "app") {
+    n++;
+    cur = cur.fn;
+  }
+  return n;
+}
+
 export { EMPTY_KVMAP };
