@@ -25,6 +25,34 @@ export function mapChildren(e: Expr, g: (child: Expr) => Expr): Expr {
   }
 }
 
+/**
+ * Like {@link mapChildren} but threads a binder depth: `g` is called with
+ * `depth + 1` under each binder body and `depth` elsewhere. Used by the
+ * capture-aware de Bruijn operations in `instantiate.ts`.
+ */
+export function mapChildrenWithDepth(
+  e: Expr,
+  depth: number,
+  g: (child: Expr, depth: number) => Expr,
+): Expr {
+  switch (e.kind) {
+    case "app":
+      return mkApp(g(e.fn, depth), g(e.arg, depth));
+    case "lam":
+      return mkLambda(e.name, g(e.type, depth), g(e.body, depth + 1), e.info);
+    case "pi":
+      return mkPi(e.name, g(e.type, depth), g(e.body, depth + 1), e.info);
+    case "let":
+      return mkLet(e.name, g(e.type, depth), g(e.value, depth), g(e.body, depth + 1));
+    case "mdata":
+      return mkMData(e.data, g(e.expr, depth));
+    case "proj":
+      return mkProj(e.struct, e.idx, g(e.expr, depth));
+    default:
+      return e; // bvar, fvar, mvar, sort, const, lit: no subexpressions
+  }
+}
+
 /** Visit `e` and all of its subexpressions, top-down. */
 export function forEach(e: Expr, f: (sub: Expr) => void): void {
   f(e);

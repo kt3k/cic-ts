@@ -9,18 +9,8 @@
 // `abstract`, `fvars[i]` becomes `BVar (n - 1 - i)`, so the last free variable
 // becomes the innermost bound variable.
 
-import {
-  type Expr,
-  mkApp,
-  mkBVar,
-  mkConst,
-  mkLambda,
-  mkLet,
-  mkMData,
-  mkPi,
-  mkProj,
-  mkSort,
-} from "./expr.ts";
+import { type Expr, mkBVar, mkConst, mkSort } from "./expr.ts";
+import { mapChildrenWithDepth } from "./traverse.ts";
 import { type Name, nameEq } from "./name.ts";
 import { type Level, levelInstantiate } from "./level.ts";
 
@@ -33,56 +23,19 @@ export function liftLooseBVars(e: Expr, s: number, d: number): Expr {
   if (d === 0) return e;
   const go = (m: Expr, s: number): Expr => {
     if (m.looseBVarRange <= s) return m;
-    switch (m.kind) {
-      case "bvar":
-        return m.idx >= BigInt(s) ? mkBVar(m.idx + BigInt(d)) : m;
-      case "app":
-        return mkApp(go(m.fn, s), go(m.arg, s));
-      case "lam":
-        return mkLambda(m.name, go(m.type, s), go(m.body, s + 1), m.info);
-      case "pi":
-        return mkPi(m.name, go(m.type, s), go(m.body, s + 1), m.info);
-      case "let":
-        return mkLet(m.name, go(m.type, s), go(m.value, s), go(m.body, s + 1));
-      case "mdata":
-        return mkMData(m.data, go(m.expr, s));
-      case "proj":
-        return mkProj(m.struct, m.idx, go(m.expr, s));
-      default:
-        return m;
-    }
+    if (m.kind === "bvar") return m.idx >= BigInt(s) ? mkBVar(m.idx + BigInt(d)) : m;
+    return mapChildrenWithDepth(m, s, go);
   };
   return go(e, s);
 }
 
 /**
  * Subtract `d` from every loose bound variable with index `>= s`. The caller
- * must ensure no loose bvar lies in `[s, s + d)` (those would underflow).
+ * must ensure no loose bvar lies in `[s, s + d)` (those would underflow). This
+ * is exactly {@link liftLooseBVars} with a negated shift.
  */
 export function lowerLooseBVars(e: Expr, s: number, d: number): Expr {
-  if (d === 0) return e;
-  const go = (m: Expr, s: number): Expr => {
-    if (m.looseBVarRange <= s) return m;
-    switch (m.kind) {
-      case "bvar":
-        return m.idx >= BigInt(s) ? mkBVar(m.idx - BigInt(d)) : m;
-      case "app":
-        return mkApp(go(m.fn, s), go(m.arg, s));
-      case "lam":
-        return mkLambda(m.name, go(m.type, s), go(m.body, s + 1), m.info);
-      case "pi":
-        return mkPi(m.name, go(m.type, s), go(m.body, s + 1), m.info);
-      case "let":
-        return mkLet(m.name, go(m.type, s), go(m.value, s), go(m.body, s + 1));
-      case "mdata":
-        return mkMData(m.data, go(m.expr, s));
-      case "proj":
-        return mkProj(m.struct, m.idx, go(m.expr, s));
-      default:
-        return m;
-    }
-  };
-  return go(e, s);
+  return liftLooseBVars(e, s, -d);
 }
 
 /**
@@ -95,28 +48,13 @@ export function instantiate(e: Expr, subst: readonly Expr[]): Expr {
   if (n === 0) return e;
   const go = (m: Expr, depth: number): Expr => {
     if (m.looseBVarRange <= depth) return m;
-    switch (m.kind) {
-      case "bvar": {
-        if (m.idx < BigInt(depth)) return m;
-        const j = Number(m.idx) - depth;
-        if (j < n) return liftLooseBVars(subst[j]!, 0, depth);
-        return mkBVar(m.idx - BigInt(n));
-      }
-      case "app":
-        return mkApp(go(m.fn, depth), go(m.arg, depth));
-      case "lam":
-        return mkLambda(m.name, go(m.type, depth), go(m.body, depth + 1), m.info);
-      case "pi":
-        return mkPi(m.name, go(m.type, depth), go(m.body, depth + 1), m.info);
-      case "let":
-        return mkLet(m.name, go(m.type, depth), go(m.value, depth), go(m.body, depth + 1));
-      case "mdata":
-        return mkMData(m.data, go(m.expr, depth));
-      case "proj":
-        return mkProj(m.struct, m.idx, go(m.expr, depth));
-      default:
-        return m;
+    if (m.kind === "bvar") {
+      if (m.idx < BigInt(depth)) return m;
+      const j = Number(m.idx) - depth;
+      if (j < n) return liftLooseBVars(subst[j]!, 0, depth);
+      return mkBVar(m.idx - BigInt(n));
     }
+    return mapChildrenWithDepth(m, depth, go);
   };
   return go(e, 0);
 }
@@ -136,28 +74,13 @@ export function instantiateRev(e: Expr, subst: readonly Expr[]): Expr {
   if (n === 0) return e;
   const go = (m: Expr, depth: number): Expr => {
     if (m.looseBVarRange <= depth) return m;
-    switch (m.kind) {
-      case "bvar": {
-        if (m.idx < BigInt(depth)) return m;
-        const j = Number(m.idx) - depth;
-        if (j < n) return liftLooseBVars(subst[n - 1 - j]!, 0, depth);
-        return mkBVar(m.idx - BigInt(n));
-      }
-      case "app":
-        return mkApp(go(m.fn, depth), go(m.arg, depth));
-      case "lam":
-        return mkLambda(m.name, go(m.type, depth), go(m.body, depth + 1), m.info);
-      case "pi":
-        return mkPi(m.name, go(m.type, depth), go(m.body, depth + 1), m.info);
-      case "let":
-        return mkLet(m.name, go(m.type, depth), go(m.value, depth), go(m.body, depth + 1));
-      case "mdata":
-        return mkMData(m.data, go(m.expr, depth));
-      case "proj":
-        return mkProj(m.struct, m.idx, go(m.expr, depth));
-      default:
-        return m;
+    if (m.kind === "bvar") {
+      if (m.idx < BigInt(depth)) return m;
+      const j = Number(m.idx) - depth;
+      if (j < n) return liftLooseBVars(subst[n - 1 - j]!, 0, depth);
+      return mkBVar(m.idx - BigInt(n));
     }
+    return mapChildrenWithDepth(m, depth, go);
   };
   return go(e, 0);
 }
@@ -177,28 +100,13 @@ export function abstract(e: Expr, fvars: readonly Expr[]): Expr {
   });
   const go = (m: Expr, depth: number): Expr => {
     if (!m.hasFVar) return m;
-    switch (m.kind) {
-      case "fvar": {
-        for (let i = 0; i < n; i++) {
-          if (nameEq(m.id, ids[i]!)) return mkBVar(BigInt(depth + n - 1 - i));
-        }
-        return m;
+    if (m.kind === "fvar") {
+      for (let i = 0; i < n; i++) {
+        if (nameEq(m.id, ids[i]!)) return mkBVar(BigInt(depth + n - 1 - i));
       }
-      case "app":
-        return mkApp(go(m.fn, depth), go(m.arg, depth));
-      case "lam":
-        return mkLambda(m.name, go(m.type, depth), go(m.body, depth + 1), m.info);
-      case "pi":
-        return mkPi(m.name, go(m.type, depth), go(m.body, depth + 1), m.info);
-      case "let":
-        return mkLet(m.name, go(m.type, depth), go(m.value, depth), go(m.body, depth + 1));
-      case "mdata":
-        return mkMData(m.data, go(m.expr, depth));
-      case "proj":
-        return mkProj(m.struct, m.idx, go(m.expr, depth));
-      default:
-        return m;
+      return m;
     }
+    return mapChildrenWithDepth(m, depth, go);
   };
   return go(e, 0);
 }
@@ -214,26 +122,15 @@ export function instantiateLevelParams(
   args: readonly Level[],
 ): Expr {
   if (params.length === 0) return e;
+  // Level substitution ignores binder depth, so the threaded depth is unused.
   const go = (m: Expr): Expr => {
     switch (m.kind) {
       case "sort":
         return mkSort(levelInstantiate(m.level, params, args));
       case "const":
         return mkConst(m.name, m.levels.map((l) => levelInstantiate(l, params, args)));
-      case "app":
-        return mkApp(go(m.fn), go(m.arg));
-      case "lam":
-        return mkLambda(m.name, go(m.type), go(m.body), m.info);
-      case "pi":
-        return mkPi(m.name, go(m.type), go(m.body), m.info);
-      case "let":
-        return mkLet(m.name, go(m.type), go(m.value), go(m.body));
-      case "mdata":
-        return mkMData(m.data, go(m.expr));
-      case "proj":
-        return mkProj(m.struct, m.idx, go(m.expr));
       default:
-        return m;
+        return mapChildrenWithDepth(m, 0, (child) => go(child));
     }
   };
   return go(e);
