@@ -56,6 +56,40 @@ export function nameToString(name: Name): string {
   }
 }
 
+const kindRank: Record<Name["kind"], number> = { anonymous: 0, str: 1, num: 2 };
+
+/**
+ * A deterministic total order on names: `-1` if `a < b`, `0` if equal, `1` if `a > b`.
+ *
+ * The exact order is an implementation detail; only totality and antisymmetry
+ * matter. It backs the canonical ordering used by level normalization, so it
+ * must distinguish every pair of distinct names (e.g. the string `"1"` from the
+ * numeral `1`).
+ */
+export function nameCmp(a: Name, b: Name): number {
+  if (a === b) return 0;
+  if (a.kind !== b.kind) return kindRank[a.kind] < kindRank[b.kind] ? -1 : 1;
+  switch (a.kind) {
+    case "anonymous":
+      return 0;
+    case "str": {
+      const bb = b as typeof a;
+      if (a.str !== bb.str) return a.str < bb.str ? -1 : 1;
+      return nameCmp(a.prefix, bb.prefix);
+    }
+    case "num": {
+      const bb = b as typeof a;
+      if (a.num !== bb.num) return a.num < bb.num ? -1 : 1;
+      return nameCmp(a.prefix, bb.prefix);
+    }
+  }
+}
+
+/** `a < b` in the total order of {@link nameCmp}. */
+export function nameLt(a: Name, b: Name): boolean {
+  return nameCmp(a, b) < 0;
+}
+
 /** Structural equality. Uses the precomputed hash for a cheap mismatch check. */
 export function nameEq(a: Name, b: Name): boolean {
   if (a === b) return true;
