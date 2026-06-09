@@ -12,3 +12,4 @@ export * from "./localContext.ts";
 export * from "./environment.ts";
 export * from "./typeChecker.ts";
 export * from "./inductive.ts";
+export * from "./quot.ts";

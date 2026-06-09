@@ -95,12 +95,26 @@ export interface RecursorVal {
   readonly isUnsafe: boolean;
 }
 
+// --- Quotient types (Phase 4) ----------------------------------------------
+
+export type QuotKind = "type" | "mk" | "lift" | "ind";
+
+/** The stored info for one of the four `Quot` primitives. */
+export interface QuotVal {
+  readonly kind: "quot";
+  readonly name: Name;
+  readonly levelParams: readonly Name[];
+  readonly type: Expr;
+  readonly quotKind: QuotKind;
+}
+
 export type Declaration = AxiomVal | DefinitionVal | TheoremVal | OpaqueVal;
 export type ConstantInfo =
   | Declaration
   | InductiveVal
   | ConstructorVal
-  | RecursorVal;
+  | RecursorVal
+  | QuotVal;
 
 // --- Inductive declaration (input to Environment.addInductive) --------------
 

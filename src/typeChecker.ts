@@ -293,6 +293,11 @@ export class TypeChecker {
         cur = reduced;
         continue;
       }
+      const quot = this.reduceQuot(core); // Quot.lift / Quot.ind
+      if (quot !== undefined) {
+        cur = quot;
+        continue;
+      }
       const projected = this.reduceProj(core);
       if (projected !== undefined) {
         cur = projected;
@@ -400,6 +405,48 @@ export class TypeChecker {
     const ci = this.env.find(fn.name);
     if (ci === undefined || ci.kind !== "inductive" || ci.ctors.length !== 1) return undefined;
     return mkAppN(mkConst(ci.ctors[0]!, fn.levels), getAppArgs(type).slice(0, numParams));
+  }
+
+  /**
+   * Reduce `Quot.lift f h (Quot.mk r a) ⟶ f a` (and the analogous `Quot.ind`).
+   * Ported from the kernel's `quot_reduce_rec`.
+   */
+  private reduceQuot(e: Expr): Expr | undefined {
+    const fn = getAppFn(e);
+    if (fn.kind !== "const") return undefined;
+    const ci = this.env.find(fn.name);
+    if (ci === undefined || ci.kind !== "quot") return undefined;
+
+    // `Quot.lift`: f at arg 3, major (Quot.mk …) at arg 5. `Quot.ind`: f at 3, major at 4.
+    let mkPos: number;
+    let argPos: number;
+    if (ci.quotKind === "lift") {
+      mkPos = 5;
+      argPos = 3;
+    } else if (ci.quotKind === "ind") {
+      mkPos = 4;
+      argPos = 3;
+    } else {
+      return undefined;
+    }
+
+    const args = getAppArgs(e);
+    if (args.length <= mkPos) return undefined;
+    const mk = this.whnf(args[mkPos]!);
+    const mkFn = getAppFn(mk);
+    const mkArgs = getAppArgs(mk);
+    const mkCi = mkFn.kind === "const" ? this.env.find(mkFn.name) : undefined;
+    if (
+      mkCi === undefined || mkCi.kind !== "quot" || mkCi.quotKind !== "mk" || mkArgs.length !== 3
+    ) {
+      return undefined;
+    }
+
+    const f = args[argPos]!;
+    let r = mkApp(f, mkArgs[2]!); // the `a` inside Quot.mk α r a
+    const elimArity = mkPos + 1;
+    if (args.length > elimArity) r = mkAppN(r, args.slice(elimArity));
+    return r;
   }
 
   /** Reduce a projection applied to a constructor application. */
