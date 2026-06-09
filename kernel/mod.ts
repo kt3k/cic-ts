@@ -31,7 +31,6 @@ export {
   mkLevelIMax,
   mkLevelLit,
   mkLevelMax,
-  mkLevelMVar,
   mkLevelParam,
   mkLevelSucc,
   mkLevelSuccN,
@@ -54,7 +53,6 @@ export {
   mkPi,
   mkProj,
   mkSort,
-  mkStrLit,
 } from "./expr.ts";
 
 // --- Declarations (input builders, input types, and stored constant info) ---
