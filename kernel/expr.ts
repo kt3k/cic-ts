@@ -301,7 +301,7 @@ export function mkProj(struct: Name, idx: bigint, expr: Expr): Expr {
 
 // --- Equality ---------------------------------------------------------------
 
-function literalEq(a: Literal, b: Literal): boolean {
+export function literalEq(a: Literal, b: Literal): boolean {
   return a.kind === b.kind && a.value === (b as typeof a).value;
 }
 
@@ -333,7 +333,6 @@ export function exprEq(a: Expr, b: Expr): boolean {
     case "bvar":
       return a.idx === (b as typeof a).idx;
     case "fvar":
-      return nameEq(a.id, (b as typeof a).id);
     case "mvar":
       return nameEq(a.id, (b as typeof a).id);
     case "sort":

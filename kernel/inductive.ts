@@ -337,11 +337,14 @@ class AddInductive {
     };
   }
 
-  /** Build the minor premise (induction case) for one constructor. */
-  private mkMinor(cnstr: InductiveType["ctors"][number], motive: Expr): Expr {
+  /**
+   * Walk a constructor's Pi telescope, collecting every field (`bu`) and the
+   * recursive ones (`u`); returns the result type left after the fields.
+   */
+  private collectCtorFields(ctorType: Expr): { bu: Expr[]; u: Expr[]; result: Expr } {
     const bu: Expr[] = []; // all fields
     const u: Expr[] = []; // recursive fields
-    let t = cnstr.type;
+    let t = ctorType;
     let i = 0;
     while (t.kind === "pi") {
       if (i < this.nparams) {
@@ -354,7 +357,28 @@ class AddInductive {
       }
       i++;
     }
-    const itIndices = this.getIIndices(this.whnf(t));
+    return { bu, u, result: t };
+  }
+
+  /**
+   * Walk the telescope of a recursive field `ui`'s type, collecting its argument
+   * fvars (`xs`) and the inductive indices of its result.
+   */
+  private collectIndHypArgs(ui: Expr): { xs: Expr[]; itIndices: Expr[] } {
+    let uty = this.whnf(this.tc.infer(ui));
+    const xs: Expr[] = [];
+    while (uty.kind === "pi") {
+      const x = this.tc.mkLocalDecl(uty.name, uty.type);
+      xs.push(x);
+      uty = this.whnf(instantiate1(uty.body, x));
+    }
+    return { xs, itIndices: this.getIIndices(uty) };
+  }
+
+  /** Build the minor premise (induction case) for one constructor. */
+  private mkMinor(cnstr: InductiveType["ctors"][number], motive: Expr): Expr {
+    const { bu, u, result } = this.collectCtorFields(cnstr.type);
+    const itIndices = this.getIIndices(this.whnf(result));
     const introApp = mkAppN(mkAppN(mkConst(cnstr.name, this.levels), this.params), bu);
     const cApp = mkApp(mkAppN(motive, itIndices), introApp);
 
@@ -370,14 +394,7 @@ class AddInductive {
 
   /** The type of the induction hypothesis for a recursive field `ui`. */
   private mkIndHyp(ui: Expr, motive: Expr): Expr {
-    let uty = this.whnf(this.tc.infer(ui));
-    const xs: Expr[] = [];
-    while (uty.kind === "pi") {
-      const x = this.tc.mkLocalDecl(uty.name, uty.type);
-      xs.push(x);
-      uty = this.whnf(instantiate1(uty.body, x));
-    }
-    const itIndices = this.getIIndices(uty);
+    const { xs, itIndices } = this.collectIndHypArgs(ui);
     const cApp = mkApp(mkAppN(motive, itIndices), mkAppN(ui, xs));
     const vTy = this.tc.mkForallFVars(xs, cApp);
     return this.tc.mkLocalDecl(nameFromString("ih"), vTy);
@@ -389,31 +406,10 @@ class AddInductive {
     const rules: RecursorRule[] = [];
     let minorIdx = 0;
     for (const cnstr of this.indType.ctors) {
-      const bu: Expr[] = [];
-      const u: Expr[] = [];
-      let t = cnstr.type;
-      let i = 0;
-      while (t.kind === "pi") {
-        if (i < this.nparams) {
-          t = instantiate1(t.body, this.params[i]!);
-        } else {
-          const l = this.tc.mkLocalDecl(t.name, t.type);
-          bu.push(l);
-          if (this.isRecArgument(t.type)) u.push(l);
-          t = instantiate1(t.body, l);
-        }
-        i++;
-      }
+      const { bu, u } = this.collectCtorFields(cnstr.type);
       const v: Expr[] = [];
       for (const ui of u) {
-        let uty = this.whnf(this.tc.infer(ui));
-        const xs: Expr[] = [];
-        while (uty.kind === "pi") {
-          const x = this.tc.mkLocalDecl(uty.name, uty.type);
-          xs.push(x);
-          uty = this.whnf(instantiate1(uty.body, x));
-        }
-        const itIndices = this.getIIndices(uty);
+        const { xs, itIndices } = this.collectIndHypArgs(ui);
         let recApp: Expr = mkConst(mkRecName(this.indName), lvls);
         recApp = mkAppN(recApp, this.params);
         recApp = mkAppN(recApp, motives);

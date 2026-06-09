@@ -14,6 +14,7 @@ import {
   getAppArgs,
   getAppFn,
   type Literal,
+  literalEq,
   mkApp,
   mkAppN,
   mkBVar,
@@ -28,7 +29,7 @@ import {
 import { type Level, levelIsEquiv, levelZero, mkLevelIMaxSmart, mkLevelSucc } from "./level.ts";
 import { mkNumName, type Name, nameEq, nameFromString, nameToString } from "./name.ts";
 import { abstract, instantiate1, instantiateLevelParams, liftLooseBVars } from "./instantiate.ts";
-import { LocalContext } from "./local_context.ts";
+import { LocalContext, type LocalDecl } from "./local_context.ts";
 import { constValue, isUnfoldable, recursorMajorIdx, type RecursorVal } from "./declaration.ts";
 import { kernelError } from "./exception.ts";
 import type { Environment } from "./environment.ts";
@@ -84,6 +85,11 @@ function levelsIsEquiv(as: readonly Level[], bs: readonly Level[]): boolean {
   return true;
 }
 
+/** Build a `LocalDecl`, including `value` only when present (exactOptionalPropertyTypes). */
+function mkDecl(fvarId: Name, name: Name, type: Expr, value?: Expr): LocalDecl {
+  return value === undefined ? { fvarId, name, type } : { fvarId, name, type, value };
+}
+
 export class TypeChecker {
   private lctx = new LocalContext();
   private freshCounter = 0;
@@ -100,10 +106,7 @@ export class TypeChecker {
   /** Introduce a fresh free variable into the (persistent) local context. */
   mkLocalDecl(name: Name, type: Expr, value?: Expr): Expr {
     const fv = this.mkFreshFVar();
-    const decl = value === undefined
-      ? { fvarId: fv.id, name, type }
-      : { fvarId: fv.id, name, type, value };
-    this.lctx = this.lctx.push(decl);
+    this.lctx = this.lctx.push(mkDecl(fv.id, name, type, value));
     return fv;
   }
 
@@ -115,28 +118,44 @@ export class TypeChecker {
     return decl.type;
   }
 
-  /** Build `(fvars) → body`, abstracting the free variables into Pi binders. */
-  mkForallFVars(fvars: readonly Expr[], body: Expr): Expr {
+  /**
+   * Build a nested binding (`Pi` or `lambda`, per `mk`) over `fvars`, abstracting
+   * each free variable — and the types of those that follow it — into the binder.
+   */
+  private mkBindingFVars(
+    fvars: readonly Expr[],
+    body: Expr,
+    mk: (name: Name, type: Expr, body: Expr) => Expr,
+    who: string,
+  ): Expr {
     let r = abstract(body, fvars);
     for (let i = fvars.length - 1; i >= 0; i--) {
       const fv = fvars[i]!;
-      if (fv.kind !== "fvar") return kernelError("other", "mkForallFVars: not an fvar");
+      if (fv.kind !== "fvar") return kernelError("other", `${who}: not an fvar`);
       const ty = abstract(this.localType(fv), fvars.slice(0, i));
-      r = mkPi(this.lctx.find(fv.id)!.name, ty, r);
+      r = mk(this.lctx.find(fv.id)!.name, ty, r);
     }
     return r;
   }
 
+  /** Build `(fvars) → body`, abstracting the free variables into Pi binders. */
+  mkForallFVars(fvars: readonly Expr[], body: Expr): Expr {
+    return this.mkBindingFVars(
+      fvars,
+      body,
+      (name, type, b) => mkPi(name, type, b),
+      "mkForallFVars",
+    );
+  }
+
   /** Build `fun (fvars) => body`, abstracting the free variables into lambdas. */
   mkLambdaFVars(fvars: readonly Expr[], body: Expr): Expr {
-    let r = abstract(body, fvars);
-    for (let i = fvars.length - 1; i >= 0; i--) {
-      const fv = fvars[i]!;
-      if (fv.kind !== "fvar") return kernelError("other", "mkLambdaFVars: not an fvar");
-      const ty = abstract(this.localType(fv), fvars.slice(0, i));
-      r = mkLambda(this.lctx.find(fv.id)!.name, ty, r);
-    }
-    return r;
+    return this.mkBindingFVars(
+      fvars,
+      body,
+      (name, type, b) => mkLambda(name, type, b),
+      "mkLambdaFVars",
+    );
   }
 
   /** Run `fn` with a fresh free variable bound to (`name` : `type` [:= `value`]). */
@@ -148,10 +167,7 @@ export class TypeChecker {
   ): T {
     const fv = this.mkFreshFVar();
     const saved = this.lctx;
-    const decl = value === undefined
-      ? { fvarId: fv.id, name, type }
-      : { fvarId: fv.id, name, type, value };
-    this.lctx = saved.push(decl);
+    this.lctx = saved.push(mkDecl(fv.id, name, type, value));
     try {
       return fn(fv);
     } finally {
@@ -578,14 +594,11 @@ export class TypeChecker {
             levelsIsEquiv(a.levels, (b as typeof a).levels);
           break;
         case "fvar":
-          structural = nameEq(a.id, (b as typeof a).id);
-          break;
         case "mvar":
           structural = nameEq(a.id, (b as typeof a).id);
           break;
         case "lit":
-          structural = a.lit.kind === (b as typeof a).lit.kind &&
-            a.lit.value === (b as typeof a).lit.value;
+          structural = literalEq(a.lit, (b as typeof a).lit);
           break;
         case "app": {
           const bb = b as typeof a;
