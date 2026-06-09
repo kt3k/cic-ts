@@ -84,23 +84,39 @@ class AddInductive {
     return true;
   }
 
-  // Step 1: check the inductive type, collect params, indices, result level.
-  private checkInductiveType(): void {
-    this.tc.ensureSort(this.tc.infer(this.indType.type));
+  /**
+   * Walk the inductive type's Pi telescope, introducing a fresh fvar for each
+   * binder into the current checker. Resets and fills `this.params` with the
+   * first `nparams` binders; returns the remaining (index) fvars and the result
+   * type left after the telescope.
+   */
+  private introIndTelescope(): { indices: Expr[]; result: Expr } {
+    this.params = [];
+    const indices: Expr[] = [];
     let t = this.whnf(this.indType.type);
     let i = 0;
     while (t.kind === "pi") {
       const fv = this.tc.mkLocalDecl(t.name, t.type);
       if (i < this.nparams) this.params.push(fv);
+      else indices.push(fv);
       t = this.whnf(instantiate1(t.body, fv));
       i++;
     }
-    if (i < this.nparams) {
+    return { indices, result: t };
+  }
+
+  // Step 1: check the inductive type, collect params, indices, result level.
+  private checkInductiveType(): void {
+    this.tc.ensureSort(this.tc.infer(this.indType.type));
+    const { indices, result } = this.introIndTelescope();
+    if (this.params.length < this.nparams) {
       kernelError("other", "addInductive: type has fewer binders than declared parameters");
     }
-    this.nindices = i - this.nparams;
-    if (t.kind !== "sort") kernelError("expectedSort", "addInductive: type must end in a sort");
-    this.resultLevel = t.level;
+    this.nindices = indices.length;
+    if (result.kind !== "sort") {
+      kernelError("expectedSort", "addInductive: type must end in a sort");
+    }
+    this.resultLevel = result.level;
   }
 
   // Step 2: pre-scan whether any constructor takes a recursive argument.
@@ -284,18 +300,8 @@ class AddInductive {
   // Step 7+8: build the recursor and its reduction rules.
   private buildRecursor(currentEnv: Environment): RecursorVal {
     this.tc = new TypeChecker(currentEnv);
-    // Re-introduce parameters into the fresh checker's context.
-    this.params = [];
-    let pt = this.whnf(this.indType.type);
-    let pi = 0;
-    const allIndices: Expr[] = [];
-    while (pt.kind === "pi") {
-      const fv = this.tc.mkLocalDecl(pt.name, pt.type);
-      if (pi < this.nparams) this.params.push(fv);
-      else allIndices.push(fv);
-      pt = this.whnf(instantiate1(pt.body, fv));
-      pi++;
-    }
+    // Re-introduce parameters and indices into the fresh checker's context.
+    const { indices: allIndices } = this.introIndTelescope();
 
     // Motive C : (indices) → (major : I params indices) → Sort elimLevel
     const majorType = mkAppN(mkAppN(this.indCnst, this.params), allIndices);
@@ -383,11 +389,7 @@ class AddInductive {
     const cApp = mkApp(mkAppN(motive, itIndices), introApp);
 
     // Induction hypotheses for the recursive fields.
-    const v: Expr[] = [];
-    for (const ui of u) {
-      const v_i = this.mkIndHyp(ui, motive);
-      v.push(v_i);
-    }
+    const v = u.map((ui) => this.mkIndHyp(ui, motive));
     const minorTy = this.tc.mkForallFVars(bu, this.tc.mkForallFVars(v, cApp));
     return this.tc.mkLocalDecl(minorPremiseName(cnstr.name, this.indName), minorTy);
   }
@@ -407,25 +409,23 @@ class AddInductive {
     let minorIdx = 0;
     for (const cnstr of this.indType.ctors) {
       const { bu, u } = this.collectCtorFields(cnstr.type);
-      const v: Expr[] = [];
-      for (const ui of u) {
+      const v = u.map((ui) => {
         const { xs, itIndices } = this.collectIndHypArgs(ui);
-        let recApp: Expr = mkConst(mkRecName(this.indName), lvls);
-        recApp = mkAppN(recApp, this.params);
-        recApp = mkAppN(recApp, motives);
-        recApp = mkAppN(recApp, minors);
-        recApp = mkAppN(recApp, itIndices);
-        recApp = mkApp(recApp, mkAppN(ui, xs));
-        v.push(this.tc.mkLambdaFVars(xs, recApp));
-      }
-      let eApp = mkAppN(minors[minorIdx]!, bu);
-      eApp = mkAppN(eApp, v);
+        const recApp = mkApp(
+          mkAppN(mkConst(mkRecName(this.indName), lvls), [
+            ...this.params,
+            ...motives,
+            ...minors,
+            ...itIndices,
+          ]),
+          mkAppN(ui, xs),
+        );
+        return this.tc.mkLambdaFVars(xs, recApp);
+      });
+      const eApp = mkAppN(mkAppN(minors[minorIdx]!, bu), v);
       const compRhs = this.tc.mkLambdaFVars(
-        this.params,
-        this.tc.mkLambdaFVars(
-          motives,
-          this.tc.mkLambdaFVars(minors, this.tc.mkLambdaFVars(bu, eApp)),
-        ),
+        [...this.params, ...motives, ...minors, ...bu],
+        eApp,
       );
       rules.push({ ctor: cnstr.name, nfields: bu.length, rhs: compRhs });
       minorIdx++;
@@ -439,29 +439,15 @@ class AddInductive {
     let env = this.startEnv.addConstantUnchecked(this.inductiveVal());
     // Re-run constructor checks against the env that knows the inductive.
     this.tc = new TypeChecker(env);
-    this.reintroParams();
+    this.introIndTelescope();
     this.checkConstructors();
     for (const cv of this.constructorVals()) env = env.addConstantUnchecked(cv);
 
     this.tc = new TypeChecker(env);
-    this.reintroParams();
     this.initElimLevel();
     this.initKTarget();
     env = env.addConstantUnchecked(this.buildRecursor(env));
     return env;
-  }
-
-  /** Re-create the parameter fvars in the current checker's local context. */
-  private reintroParams(): void {
-    this.params = [];
-    let t = this.whnf(this.indType.type);
-    let i = 0;
-    while (t.kind === "pi" && i < this.nparams) {
-      const fv = this.tc.mkLocalDecl(t.name, t.type);
-      this.params.push(fv);
-      t = this.whnf(instantiate1(t.body, fv));
-      i++;
-    }
   }
 }
 

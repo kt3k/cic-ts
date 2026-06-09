@@ -54,6 +54,7 @@ const natBinOps: ReadonlyMap<string, (a: bigint, b: bigint) => bigint> = new Map
   ["Nat.land", (a, b) => a & b],
   ["Nat.lor", (a, b) => a | b],
   ["Nat.xor", (a, b) => a ^ b],
+  ["Nat.shiftRight", (a, b) => a >> b],
 ]);
 const natBinPreds: ReadonlyMap<string, (a: bigint, b: bigint) => boolean> = new Map([
   ["Nat.beq", (a, b) => a === b],
@@ -140,22 +141,12 @@ export class TypeChecker {
 
   /** Build `(fvars) → body`, abstracting the free variables into Pi binders. */
   mkForallFVars(fvars: readonly Expr[], body: Expr): Expr {
-    return this.mkBindingFVars(
-      fvars,
-      body,
-      (name, type, b) => mkPi(name, type, b),
-      "mkForallFVars",
-    );
+    return this.mkBindingFVars(fvars, body, mkPi, "mkForallFVars");
   }
 
   /** Build `fun (fvars) => body`, abstracting the free variables into lambdas. */
   mkLambdaFVars(fvars: readonly Expr[], body: Expr): Expr {
-    return this.mkBindingFVars(
-      fvars,
-      body,
-      (name, type, b) => mkLambda(name, type, b),
-      "mkLambdaFVars",
-    );
+    return this.mkBindingFVars(fvars, body, mkLambda, "mkLambdaFVars");
   }
 
   /** Run `fn` with a fresh free variable bound to (`name` : `type` [:= `value`]). */
@@ -408,8 +399,7 @@ export class TypeChecker {
     const binPred = natBinPreds.get(op);
     const isPow = op === "Nat.pow";
     const isShl = op === "Nat.shiftLeft";
-    const isShr = op === "Nat.shiftRight";
-    if (binOp === undefined && binPred === undefined && !isPow && !isShl && !isShr) {
+    if (binOp === undefined && binPred === undefined && !isPow && !isShl) {
       return undefined;
     }
     const v1 = this.getNatLitExt(e.fn.arg);
@@ -428,7 +418,6 @@ export class TypeChecker {
       if (v2 > POW_MAX_EXP) return undefined;
       return mkNatLit(v1 << v2);
     }
-    if (isShr) return mkNatLit(v1 >> v2);
     return mkNatLit(binOp!(v1, v2));
   }
 
