@@ -12,7 +12,7 @@ import { anonymousName, type Name, nameFromString } from "./name.ts";
 import { kernelError } from "./exception.ts";
 import type { QuotVal } from "./declaration.ts";
 import type { Environment } from "./environment.ts";
-import { TypeChecker } from "./typeChecker.ts";
+import { TypeChecker } from "./type_checker.ts";
 
 export const quotName: Name = nameFromString("Quot");
 export const quotMkName: Name = nameFromString("Quot.mk");

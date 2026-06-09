@@ -28,7 +28,7 @@ import {
 import { type Level, levelIsEquiv, levelZero, mkLevelIMaxSmart, mkLevelSucc } from "./level.ts";
 import { mkNumName, type Name, nameEq, nameFromString, nameToString } from "./name.ts";
 import { abstract, instantiate1, instantiateLevelParams, liftLooseBVars } from "./instantiate.ts";
-import { LocalContext } from "./localContext.ts";
+import { LocalContext } from "./local_context.ts";
 import { constValue, isUnfoldable, recursorMajorIdx, type RecursorVal } from "./declaration.ts";
 import { kernelError } from "./exception.ts";
 import type { Environment } from "./environment.ts";

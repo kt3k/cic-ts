@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertFalse } from "@std/assert";
-import { nameFromString } from "../src/name.ts";
+import { nameFromString } from "./name.ts";
 import {
   levelEq,
   levelHasMVar,
@@ -10,7 +10,7 @@ import {
   mkLevelMVar,
   mkLevelParam,
   mkLevelSucc,
-} from "../src/level.ts";
+} from "./level.ts";
 
 Deno.test("mkLevelLit builds succ^n zero", () => {
   assert(levelEq(mkLevelLit(0), levelZero));

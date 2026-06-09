@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertFalse } from "@std/assert";
-import { nameFromString } from "../src/name.ts";
-import { mkLevelLit, mkLevelMVar } from "../src/level.ts";
+import { nameFromString } from "./name.ts";
+import { mkLevelLit, mkLevelMVar } from "./level.ts";
 import {
   type Expr,
   exprEq,
@@ -17,7 +17,7 @@ import {
   mkProj,
   mkSort,
   mkStrLit,
-} from "../src/expr.ts";
+} from "./expr.ts";
 
 const nat = mkConst(nameFromString("Nat"));
 const x = nameFromString("x");

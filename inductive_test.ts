@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertThrows } from "@std/assert";
-import { anonymousName, nameFromString } from "../src/name.ts";
-import { levelZero, mkLevelLit, mkLevelParam, mkLevelSucc } from "../src/level.ts";
+import { anonymousName, nameFromString } from "./name.ts";
+import { levelZero, mkLevelLit, mkLevelParam, mkLevelSucc } from "./level.ts";
 import {
   type Expr,
   mkApp,
@@ -11,11 +11,11 @@ import {
   mkNatLit,
   mkPi,
   mkSort,
-} from "../src/expr.ts";
-import { Environment } from "../src/environment.ts";
-import { TypeChecker } from "../src/typeChecker.ts";
-import { mkRecName } from "../src/inductive.ts";
-import { KernelError } from "../src/exception.ts";
+} from "./expr.ts";
+import { Environment } from "./environment.ts";
+import { TypeChecker } from "./type_checker.ts";
+import { mkRecName } from "./inductive.ts";
+import { KernelError } from "./exception.ts";
 
 const lit1 = mkLevelLit(1);
 const type0 = mkSort(levelZero); // Prop

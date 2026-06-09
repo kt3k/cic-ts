@@ -1,7 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
-import { nameFromString } from "../src/name.ts";
-import { type Expr, exprEq, mkApp, mkBVar, mkConst, mkFVar, mkLambda } from "../src/expr.ts";
-import { find, forEach, mapChildren, replace } from "../src/traverse.ts";
+import { nameFromString } from "./name.ts";
+import { type Expr, exprEq, mkApp, mkBVar, mkConst, mkFVar, mkLambda } from "./expr.ts";
+import { find, forEach, mapChildren, replace } from "./traverse.ts";
 
 const nat = mkConst(nameFromString("Nat"));
 const x = nameFromString("x");

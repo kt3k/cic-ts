@@ -8,7 +8,7 @@
 import type { ConstantInfo, Declaration, InductiveDeclaration } from "./declaration.ts";
 import { type Name, nameToString } from "./name.ts";
 import { kernelError } from "./exception.ts";
-import { TypeChecker } from "./typeChecker.ts";
+import { TypeChecker } from "./type_checker.ts";
 import { addInductive } from "./inductive.ts";
 import { addQuot } from "./quot.ts";
 

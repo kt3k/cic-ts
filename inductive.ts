@@ -21,7 +21,7 @@ import type {
   RecursorVal,
 } from "./declaration.ts";
 import type { Environment } from "./environment.ts";
-import { TypeChecker } from "./typeChecker.ts";
+import { TypeChecker } from "./type_checker.ts";
 
 /** The recursor name for an inductive: `I.rec`. */
 export function mkRecName(ind: Name): Name {

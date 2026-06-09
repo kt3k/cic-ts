@@ -348,20 +348,20 @@ ill-formed terms."
 
 ## 10. Module Layout (correspondence with the Lean kernel)
 
-| cic-ts module     | Lean kernel                            | Contents                                       |
-| ----------------- | -------------------------------------- | ---------------------------------------------- |
-| `name.ts`         | `name` (lean)                          | hierarchical names                             |
-| `level.ts`        | `level.{h,cpp}`                        | universe levels, normalization, ordering       |
-| `expr.ts`         | `expr.{h,cpp}`                         | `Expr` representation and constructors         |
-| `traverse.ts`     | `for_each_fn`, `replace_fn`, `find_fn` | traversal combinators                          |
-| `instantiate.ts`  | `instantiate.cpp`, `abstract.cpp`      | de Bruijn substitution / abstraction           |
-| `localContext.ts` | `local_ctx.{h,cpp}`                    | local context                                  |
-| `declaration.ts`  | `declaration.{h,cpp}`                  | declarations                                   |
-| `environment.ts`  | `environment.{h,cpp}`                  | environment and `addDecl`                      |
-| `typeChecker.ts`  | `type_checker.{h,cpp}`                 | `infer` / `whnf` / `isDefEq` / `check`         |
-| `inductive.ts`    | `inductive.{h,cpp}`                    | inductive verification and recursor generation |
-| `quot.ts`         | `quot.{h,cpp}`                         | quotient types                                 |
-| `exception.ts`    | `kernel_exception.h`                   | kernel exceptions                              |
+| cic-ts module      | Lean kernel                            | Contents                                       |
+| ------------------ | -------------------------------------- | ---------------------------------------------- |
+| `name.ts`          | `name` (lean)                          | hierarchical names                             |
+| `level.ts`         | `level.{h,cpp}`                        | universe levels, normalization, ordering       |
+| `expr.ts`          | `expr.{h,cpp}`                         | `Expr` representation and constructors         |
+| `traverse.ts`      | `for_each_fn`, `replace_fn`, `find_fn` | traversal combinators                          |
+| `instantiate.ts`   | `instantiate.cpp`, `abstract.cpp`      | de Bruijn substitution / abstraction           |
+| `local_context.ts` | `local_ctx.{h,cpp}`                    | local context                                  |
+| `declaration.ts`   | `declaration.{h,cpp}`                  | declarations                                   |
+| `environment.ts`   | `environment.{h,cpp}`                  | environment and `addDecl`                      |
+| `type_checker.ts`  | `type_checker.{h,cpp}`                 | `infer` / `whnf` / `isDefEq` / `check`         |
+| `inductive.ts`     | `inductive.{h,cpp}`                    | inductive verification and recursor generation |
+| `quot.ts`          | `quot.{h,cpp}`                         | quotient types                                 |
+| `exception.ts`     | `kernel_exception.h`                   | kernel exceptions                              |
 
 ---
 

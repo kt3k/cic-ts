@@ -1,9 +1,9 @@
 import { assert, assertFalse } from "@std/assert";
-import { anonymousName, nameFromString } from "../src/name.ts";
-import { mkLevelLit } from "../src/level.ts";
-import { type Expr, mkApp, mkAppN, mkConst, mkNatLit, mkPi, mkSort } from "../src/expr.ts";
-import { Environment } from "../src/environment.ts";
-import { TypeChecker } from "../src/typeChecker.ts";
+import { anonymousName, nameFromString } from "./name.ts";
+import { mkLevelLit } from "./level.ts";
+import { type Expr, mkApp, mkAppN, mkConst, mkNatLit, mkPi, mkSort } from "./expr.ts";
+import { Environment } from "./environment.ts";
+import { TypeChecker } from "./type_checker.ts";
 
 const type1 = mkSort(mkLevelLit(1));
 const anon = anonymousName;

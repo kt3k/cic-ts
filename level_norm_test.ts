@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertFalse } from "@std/assert";
-import { nameFromString } from "../src/name.ts";
+import { nameFromString } from "./name.ts";
 import {
   isExplicit,
   isNotZero,
@@ -16,7 +16,7 @@ import {
   mkLevelSucc,
   normalizeLevel,
   toOffset,
-} from "../src/level.ts";
+} from "./level.ts";
 
 const u = mkLevelParam(nameFromString("u"));
 const w = mkLevelParam(nameFromString("v"));

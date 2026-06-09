@@ -6,7 +6,7 @@ import {
   nameEq,
   nameFromString,
   nameToString,
-} from "../src/name.ts";
+} from "./name.ts";
 
 Deno.test("nameFromString / nameToString roundtrip", () => {
   assertEquals(nameToString(nameFromString("Nat.succ")), "Nat.succ");

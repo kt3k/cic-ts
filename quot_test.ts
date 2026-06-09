@@ -1,12 +1,12 @@
 import { assert, assertEquals, assertThrows } from "@std/assert";
-import { anonymousName, nameFromString } from "../src/name.ts";
-import { levelZero, mkLevelLit, mkLevelParam } from "../src/level.ts";
-import { mkApp, mkAppN, mkBVar, mkConst, mkPi, mkSort } from "../src/expr.ts";
-import { Environment } from "../src/environment.ts";
-import { TypeChecker } from "../src/typeChecker.ts";
-import { mkAxiom } from "../src/declaration.ts";
-import { quotIndName, quotLiftName, quotMkName, quotName } from "../src/quot.ts";
-import { KernelError } from "../src/exception.ts";
+import { anonymousName, nameFromString } from "./name.ts";
+import { levelZero, mkLevelLit, mkLevelParam } from "./level.ts";
+import { mkApp, mkAppN, mkBVar, mkConst, mkPi, mkSort } from "./expr.ts";
+import { Environment } from "./environment.ts";
+import { TypeChecker } from "./type_checker.ts";
+import { mkAxiom } from "./declaration.ts";
+import { quotIndName, quotLiftName, quotMkName, quotName } from "./quot.ts";
+import { KernelError } from "./exception.ts";
 
 const lit1 = mkLevelLit(1);
 const type0 = mkSort(levelZero); // Prop
