@@ -37,7 +37,34 @@ const natName = nameFromString("Nat");
 const stringName = nameFromString("String");
 const natZeroName = nameFromString("Nat.zero");
 const natSuccName = nameFromString("Nat.succ");
+const boolTrueName = nameFromString("Bool.true");
+const boolFalseName = nameFromString("Bool.false");
 const freshPrefix = nameFromString("_kfv");
+
+// Binary Nat operators the kernel evaluates directly on literals (GMP builtins).
+const POW_MAX_EXP = 1n << 24n; // matches the kernel's ReducePowMaxExp
+const natBinOps: ReadonlyMap<string, (a: bigint, b: bigint) => bigint> = new Map([
+  ["Nat.add", (a, b) => a + b],
+  ["Nat.sub", (a, b) => (a > b ? a - b : 0n)], // truncated subtraction
+  ["Nat.mul", (a, b) => a * b],
+  ["Nat.gcd", gcdBig],
+  ["Nat.mod", (a, b) => (b === 0n ? a : a % b)],
+  ["Nat.div", (a, b) => (b === 0n ? 0n : a / b)],
+  ["Nat.land", (a, b) => a & b],
+  ["Nat.lor", (a, b) => a | b],
+  ["Nat.xor", (a, b) => a ^ b],
+]);
+const natBinPreds: ReadonlyMap<string, (a: bigint, b: bigint) => boolean> = new Map([
+  ["Nat.beq", (a, b) => a === b],
+  ["Nat.ble", (a, b) => a <= b],
+]);
+
+function gcdBig(a: bigint, b: bigint): bigint {
+  while (b !== 0n) {
+    [a, b] = [b, a % b];
+  }
+  return a < 0n ? -a : a;
+}
 
 function literalType(lit: Literal): Expr {
   return mkConst(lit.kind === "natVal" ? natName : stringName);
@@ -283,6 +310,11 @@ export class TypeChecker {
     let cur = e;
     for (;;) {
       const core = this.whnfCore(cur);
+      const nat = this.reduceNat(core); // builtin Nat arithmetic on literals
+      if (nat !== undefined) {
+        cur = nat;
+        continue;
+      }
       const unfolded = this.unfoldDefinition(core);
       if (unfolded !== undefined) {
         cur = unfolded;
@@ -330,6 +362,58 @@ export class TypeChecker {
       default:
         return e;
     }
+  }
+
+  /** The value of a `Nat` literal or `Nat.zero`, or `undefined` if neither. */
+  private getNatLitExt(e: Expr): bigint | undefined {
+    const w = this.whnf(e);
+    if (w.kind === "lit" && w.lit.kind === "natVal") return w.lit.value;
+    if (w.kind === "const" && nameEq(w.name, natZeroName)) return 0n;
+    return undefined;
+  }
+
+  /**
+   * Evaluate the builtin `Nat` operations on literals (`Nat.succ`, `Nat.add`,
+   * comparisons, bitwise ops, …), matching the kernel's `reduce_nat`. These are
+   * applied before δ-unfolding so the fast path wins over the recursor-based
+   * definitions.
+   */
+  private reduceNat(e: Expr): Expr | undefined {
+    if (e.kind !== "app") return undefined;
+    // Unary: Nat.succ n
+    if (e.fn.kind === "const" && nameEq(e.fn.name, natSuccName)) {
+      const v = this.getNatLitExt(e.arg);
+      return v === undefined ? undefined : mkNatLit(v + 1n);
+    }
+    // Binary: f a b
+    if (e.fn.kind !== "app" || e.fn.fn.kind !== "const") return undefined;
+    const op = nameToString(e.fn.fn.name);
+    const binOp = natBinOps.get(op);
+    const binPred = natBinPreds.get(op);
+    const isPow = op === "Nat.pow";
+    const isShl = op === "Nat.shiftLeft";
+    const isShr = op === "Nat.shiftRight";
+    if (binOp === undefined && binPred === undefined && !isPow && !isShl && !isShr) {
+      return undefined;
+    }
+    const v1 = this.getNatLitExt(e.fn.arg);
+    if (v1 === undefined) return undefined;
+    const v2 = this.getNatLitExt(e.arg);
+    if (v2 === undefined) return undefined;
+
+    if (binPred !== undefined) {
+      return mkConst(binPred(v1, v2) ? boolTrueName : boolFalseName);
+    }
+    if (isPow) {
+      if (v2 > POW_MAX_EXP) return undefined; // avoid blowing up on huge exponents
+      return mkNatLit(v1 ** v2);
+    }
+    if (isShl) {
+      if (v2 > POW_MAX_EXP) return undefined;
+      return mkNatLit(v1 << v2);
+    }
+    if (isShr) return mkNatLit(v1 >> v2);
+    return mkNatLit(binOp!(v1, v2));
   }
 
   /** δ-unfold the head constant of `e` if it is unfoldable; else `undefined`. */
