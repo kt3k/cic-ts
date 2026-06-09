@@ -6,8 +6,8 @@
 // before admitting it. `Environment.find` / `contains` query what has been
 // admitted.
 //
-// Internal machinery — the de Bruijn operations (`instantiate.ts`), the
-// type-checker engine (`TypeChecker`), hashing, generic traversal, and level
+// Internal machinery — the de Bruijn operations and generic traversal (in
+// `expr.ts`), the type-checker engine (`TypeChecker`), hashing, and level
 // normalization — is intentionally NOT re-exported here. Import it directly from
 // the individual modules if you are extending the kernel itself.
 

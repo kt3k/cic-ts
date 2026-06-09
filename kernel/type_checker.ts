@@ -9,10 +9,14 @@
 // binder domains are sorts, etc.), so it doubles as the kernel's `check`.
 
 import {
+  abstract,
   type Expr,
   exprEq,
   getAppArgs,
   getAppFn,
+  instantiate1,
+  instantiateLevelParams,
+  liftLooseBVars,
   type Literal,
   literalEq,
   mkApp,
@@ -28,8 +32,6 @@ import {
 } from "./expr.ts";
 import { type Level, levelIsEquiv, levelZero, mkLevelIMaxSmart, mkLevelSucc } from "./level.ts";
 import { mkNumName, type Name, nameEq, nameFromString, nameToString } from "./name.ts";
-import { abstract, instantiate1, instantiateLevelParams, liftLooseBVars } from "./instantiate.ts";
-import { LocalContext, type LocalDecl } from "./local_context.ts";
 import { constValue, isUnfoldable, recursorMajorIdx, type RecursorVal } from "./declaration.ts";
 import { kernelError } from "./exception.ts";
 import type { Environment } from "./environment.ts";
@@ -84,6 +86,35 @@ function levelsIsEquiv(as: readonly Level[], bs: readonly Level[]): boolean {
     if (!levelIsEquiv(as[i]!, bs[i]!)) return false;
   }
   return true;
+}
+
+// --- Local context (SPEC.md Section 4) --------------------------------------
+//
+// Corresponds to Lean's `local_ctx`. While type checking, going under a binder
+// replaces its bound variable with a fresh free variable (locally nameless
+// style). The context records each free variable's type, and — for `let`
+// binders — its value (so reduction can δ-unfold it).
+
+interface LocalDecl {
+  readonly fvarId: Name;
+  readonly name: Name;
+  readonly type: Expr;
+  readonly value?: Expr; // present for let-binders
+}
+
+class LocalContext {
+  constructor(private readonly decls: ReadonlyMap<string, LocalDecl> = new Map()) {}
+
+  find(fvarId: Name): LocalDecl | undefined {
+    return this.decls.get(nameToString(fvarId));
+  }
+
+  /** Return an extended context containing `decl` (the original is unchanged). */
+  push(decl: LocalDecl): LocalContext {
+    const m = new Map(this.decls);
+    m.set(nameToString(decl.fvarId), decl);
+    return new LocalContext(m);
+  }
 }
 
 /** Build a `LocalDecl`, including `value` only when present (exactOptionalPropertyTypes). */
