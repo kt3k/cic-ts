@@ -35,12 +35,15 @@ const KEYWORDS: ReadonlySet<string> = new Set([
 // Non-ASCII characters that are symbols, not identifier characters.
 const RESERVED_UNICODE: ReadonlySet<string> = new Set(["→", "∀", "λ"]);
 
+const ASCII_IDENT_START = /[A-Za-z_]/;
+const ASCII_LETTER = /[A-Za-z]/;
+
 function isDigit(c: string): boolean {
   return c >= "0" && c <= "9";
 }
 
 function isIdentStart(c: string): boolean {
-  if (/[A-Za-z_]/.test(c)) return true;
+  if (ASCII_IDENT_START.test(c)) return true;
   return c.codePointAt(0)! > 0x7f && !RESERVED_UNICODE.has(c);
 }
 
@@ -146,7 +149,7 @@ class Lexer {
 
   private lexHashKeyword(pos: Pos): Token {
     let s = this.advance(); // '#'
-    while (this.peek() !== undefined && /[A-Za-z]/.test(this.peek()!)) s += this.advance();
+    while (this.peek() !== undefined && ASCII_LETTER.test(this.peek()!)) s += this.advance();
     if (!KEYWORDS.has(s)) throw new ParseError(pos, `unknown command '${s}'`);
     return this.token("keyword", s, pos);
   }

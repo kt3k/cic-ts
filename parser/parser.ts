@@ -139,14 +139,20 @@ class Parser {
 
   /** `.{u, v}` declaration universe parameters (a list of names), or `[]`. */
   private parseUnivParams(): string[] {
-    if (!this.eat(".{")) return [];
-    const names: string[] = [];
+    if (!this.at(".{")) return [];
+    return this.braceList(() => this.expectIdent("universe parameter").value);
+  }
+
+  /** Parse a comma-separated `.{ item, … }` list (the opener must be next). */
+  private braceList<T>(parseItem: () => T): T[] {
+    this.expect(".{");
+    const items: T[] = [];
     if (!this.at("}")) {
-      names.push(this.expectIdent("universe parameter").value);
-      while (this.eat(",")) names.push(this.expectIdent("universe parameter").value);
+      items.push(parseItem());
+      while (this.eat(",")) items.push(parseItem());
     }
     this.expect("}");
-    return names;
+    return items;
   }
 
   // --- Binders --------------------------------------------------------------
@@ -240,9 +246,7 @@ class Parser {
     if (t.kind === "ident") {
       this.advance();
       const univs = this.at(".{") ? this.parseUnivArgs() : undefined;
-      return univs
-        ? { kind: "ident", name: t.value, univs, pos: t.pos }
-        : { kind: "ident", name: t.value, pos: t.pos };
+      return { kind: "ident", name: t.value, ...(univs ? { univs } : {}), pos: t.pos };
     }
     if (t.kind === "numeral") {
       this.advance();
@@ -256,7 +260,7 @@ class Parser {
       if (t.value === "Type") {
         this.advance();
         const level = this.atSimpleLevel() ? this.parseLevel() : undefined;
-        return level ? { kind: "type", level, pos: t.pos } : { kind: "type", pos: t.pos };
+        return { kind: "type", ...(level ? { level } : {}), pos: t.pos };
       }
       if (t.value === "Prop") {
         this.advance();
@@ -279,14 +283,7 @@ class Parser {
 
   /** `.{l, m}` universe arguments on a constant. */
   private parseUnivArgs(): SLevel[] {
-    this.expect(".{");
-    const levels: SLevel[] = [];
-    if (!this.at("}")) {
-      levels.push(this.parseLevel());
-      while (this.eat(",")) levels.push(this.parseLevel());
-    }
-    this.expect("}");
-    return levels;
+    return this.braceList(() => this.parseLevel());
   }
 
   // --- Levels ---------------------------------------------------------------
