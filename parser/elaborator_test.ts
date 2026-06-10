@@ -105,9 +105,6 @@ function run(src: string): Environment {
       case "inductive":
         env = env.addInductive(r.decl);
         break;
-      case "initQuot":
-        env = env.addQuot();
-        break;
       case "check":
         new TypeChecker(env).infer(r.expr);
         break;

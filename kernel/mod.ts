@@ -1,10 +1,9 @@
 // Public entry point for cic-ts.
 //
-// The kernel's primary API is `Environment.addDecl` (with `addInductive` /
-// `addQuot` for inductive types and quotients): build a declaration out of the
-// term/level/name constructors below, submit it, and the kernel type-checks it
-// before admitting it. `Environment.find` / `contains` query what has been
-// admitted.
+// The kernel's primary API is `Environment.addDecl` (with `addInductive` for
+// inductive types): build a declaration out of the term/level/name constructors
+// below, submit it, and the kernel type-checks it before admitting it.
+// `Environment.find` / `contains` query what has been admitted.
 //
 // Internal machinery — the de Bruijn operations and generic traversal (in
 // `expr.ts`), the type-checker engine (`TypeChecker`), hashing, and level
@@ -70,8 +69,6 @@ export {
   mkOpaque,
   mkTheorem,
   type OpaqueVal,
-  type QuotKind,
-  type QuotVal,
   type RecursorRule,
   type RecursorVal,
   type TheoremVal,

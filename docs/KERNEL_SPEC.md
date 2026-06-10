@@ -25,11 +25,11 @@ term (`Expr`) and independently verify that it has the type it claims to have."
    table — but it gives the same fast-path behavior for large terms. The exact hash values are an
    implementation detail; only determinism and a reasonable distribution matter (see `hash.ts`).
 4. **Conceptual fidelity, not literal fidelity.** The type theory being checked is a pure CIC in the
-   style of Lean (the rules for `Sort`/`imax`, definitional equality, inductives, recursors,
-   quotients) — deliberately _without_ Lean's extensions of definitional equality: no built-in
-   literal arithmetic, no definitional proof irrelevance, and no K-like recursor reduction. The
-   _implementation_ is free to diverge in structure, naming, and module boundaries as long as it
-   accepts/rejects the same terms.
+   style of Lean (the rules for `Sort`/`imax`, definitional equality, inductives, recursors) —
+   deliberately _without_ Lean's extensions of definitional equality: no built-in literal
+   arithmetic, no definitional proof irrelevance, no K-like recursor reduction, and no quotient
+   types. The _implementation_ is free to diverge in structure, naming, and module boundaries as
+   long as it accepts/rejects the same terms.
 
 ---
 
@@ -169,7 +169,7 @@ were consolidated since the operations are tiny and share the same recursion ske
 - Helpers for shifting loose BVars and for substituting universe parameters inside an `Expr`.
 
 > For soundness, the offset arithmetic of these de Bruijn operations is the most error-prone part.
-> It is locked down with direct unit tests (§9).
+> It is locked down with direct unit tests (§8).
 
 ---
 
@@ -230,8 +230,7 @@ Reduce until the head can no longer be reduced. Reduction rules:
 - **β** — `(fun x => b) a  ⟶  instantiate1(b, a)`
 - **δ** — unfold a constant with its definition body (`definition` / `theorem`).
 - **ζ** — `let x := v; b  ⟶  instantiate1(b, v)`
-- **ι** — reduction when a recursor is applied to constructor arguments. Includes the `Quot.lift` /
-  `Quot.ind` reductions.
+- **ι** — reduction when a recursor is applied to constructor arguments.
 - **proj reduction** — `proj i (ctor ... fieldᵢ ...)  ⟶  fieldᵢ`
 - δ-unfolding is lazy and done only when necessary.
 
@@ -274,24 +273,23 @@ already-declared name, and so on.
 
 ### 6.1 Declarations and stored constants
 
-`Declaration` is the set of _input builders_ type-checked by `addDecl`. Inductives and quotients are
-**not** `Declaration` kinds — they have their own entry points (§6.2):
+`Declaration` is the set of _input builders_ type-checked by `addDecl`. Inductives are **not** a
+`Declaration` kind — they have their own entry point (§6.2):
 
 ```ts
 type Declaration = AxiomVal | DefinitionVal | TheoremVal | OpaqueVal;
 ```
 
 built with `mkAxiom` / `mkDefinition` / `mkTheorem` / `mkOpaque`. What is _stored_ in the
-environment is a `ConstantInfo`, which additionally covers the constants that inductive/quotient
-processing generates:
+environment is a `ConstantInfo`, which additionally covers the constants that inductive processing
+generates:
 
 ```ts
 type ConstantInfo =
   | Declaration
   | InductiveVal // the inductive type itself
   | ConstructorVal // each constructor
-  | RecursorVal // the generated recursor (with its RecursorRule ι-rules)
-  | QuotVal; // a Quot primitive
+  | RecursorVal; // the generated recursor (with its RecursorRule ι-rules)
 ```
 
 Inductive _input_ is an `InductiveDeclaration`
@@ -309,7 +307,6 @@ class Environment {
   contains(name: Name): boolean;
   addDecl(decl: Declaration): Environment; // axiom/definition/theorem/opaque — throws on failure
   addInductive(decl: InductiveDeclaration): Environment; // §7
-  addQuot(): Environment; // §8
 }
 ```
 
@@ -349,15 +346,7 @@ What it does:
 
 ---
 
-## 8. Quotient Types (`quot.ts`)
-
-One of the few axiomatic constructs trusted as built-in. `Environment.addQuot` introduces `Quot`,
-`Quot.mk`, `Quot.lift`, `Quot.ind` (it requires `Eq` to already be present), and the computation
-rule `Quot.lift f h (Quot.mk r a)  ⟶  f a` is incorporated into WHNF / `isDefEq`.
-
----
-
-## 9. Test Strategy
+## 8. Test Strategy
 
 Since soundness is everything, both sides are tested thickly: "accept correct terms" and "reject
 ill-formed terms." Each kernel test file mirrors a source module (six files, `*_test.ts`):
@@ -369,7 +358,6 @@ ill-formed terms." Each kernel test file mirrors a source module (six files, `*_
 | `expr_test.ts`         | constructors, cache flags, traversal, de Bruijn operations     |
 | `type_checker_test.ts` | `infer` / `isDefEq` (β/δ/ζ/η), recursor-based `Nat` arithmetic |
 | `inductive_test.ts`    | inductive verification, recursor + ι-reduction, rejections     |
-| `quot_test.ts`         | the `Quot` family and its computation rule                     |
 
 Emphasis:
 
@@ -383,7 +371,7 @@ Emphasis:
 
 ---
 
-## 10. Module Layout
+## 9. Module Layout
 
 The kernel is roughly modeled on the Lean 4 kernel's decomposition, but several small modules have
 been consolidated (traversal and de Bruijn ops into `expr.ts`; level normalization into `level.ts`;
@@ -396,16 +384,15 @@ the local context into `type_checker.ts`).
 | `expr.ts`         | `Expr` representation, constructors, traversal, de Bruijn ops    |
 | `hash.ts`         | deterministic 32-bit hashing utilities (backs the cached `hash`) |
 | `declaration.ts`  | declaration / constant-info types and the `mk*` input builders   |
-| `environment.ts`  | the `Environment` and `addDecl` / `addInductive` / `addQuot`     |
+| `environment.ts`  | the `Environment` and `addDecl` / `addInductive`                 |
 | `type_checker.ts` | `infer` / `whnf` / `isDefEq` / `check` and the local context     |
 | `inductive.ts`    | inductive verification and recursor generation                   |
-| `quot.ts`         | quotient types                                                   |
 | `exception.ts`    | `KernelError`                                                    |
 | `mod.ts`          | the public entry point (re-exports the API surface)              |
 
 ---
 
-## 11. Implementation Status
+## 10. Implementation Status
 
 All of the following are implemented and covered by tests:
 
@@ -415,7 +402,6 @@ All of the following are implemented and covered by tests:
    `App` / `Const` / `Let`, and `addDecl` for `axiom` / `definition` / `theorem` / `opaque`.
 4. **Inductive types** — verification + recursor generation + ι-reduction (`Nat` / `Bool` / `List` /
    `Eq`).
-5. **Quotient types** — the `Quot` family and its computation rule.
 
 Possible future work: cross-checking exported terms against Lean 4, and reading Lean's environment
 export format.

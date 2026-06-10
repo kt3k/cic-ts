@@ -87,9 +87,6 @@ class Parser {
           return this.parseDefLike(t.value);
         case "inductive":
           return this.parseInductive();
-        case "init_quot":
-          this.advance();
-          return { kind: "initQuot", pos: t.pos };
         case "#check": {
           this.advance();
           return { kind: "check", expr: this.parseExpr(), pos: t.pos };

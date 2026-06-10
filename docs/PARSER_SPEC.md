@@ -1,8 +1,7 @@
 # cic-ts — Surface Syntax Parser Specification (PARSER_SPEC)
 
-A small Lean-like surface syntax that compiles to the kernel API (`addDecl` / `addInductive` /
-`addQuot`). The goal is to express, as readable text, exactly what `demos/proof_check.ts` does by
-hand.
+A small Lean-like surface syntax that compiles to the kernel API (`addDecl` / `addInductive`). The
+goal is to express, as readable text, exactly what `demos/proof_check.ts` does by hand.
 
 ## 0. Design Principles
 
@@ -27,7 +26,7 @@ Surface AST
  │  Elaborator   → kernel Expr / Declaration (de Bruijn, name resolution)
  ▼
 Declaration[]
- │  Driver       → grows an Environment (addDecl / addInductive / addQuot)
+ │  Driver       → grows an Environment (addDecl / addInductive)
  ▼
 Environment (+ #check output / errors)
 ```
@@ -43,7 +42,7 @@ Suggested modules: `syntax.ts` (Surface AST types), `lexer.ts`, `parser.ts`, `el
 - **Numerals**: natural numbers `0`, `42` (sugar for the Peano constructor term
   `Nat.succ (… (Nat.zero))`).
 - **Keywords**: `inductive` `axiom` `def` `theorem` `opaque` `where` `fun` `Sort` `Type` `Prop`
-  `max` `imax` `init_quot` `#check`.
+  `max` `imax` `#check`.
 - **Symbols**: `( ) { } : := => → ∀ λ , | .{ } +`. `->` is an alias for `→`; `\fun`/`λ` and
   `\forall`/`∀` are synonyms.
 
@@ -80,7 +79,6 @@ command ::= "axiom"   ident univParams? ":" expr
           | "theorem" ident univParams? binders? ":" expr ":=" expr
           | "opaque"  ident univParams? binders? ":" expr ":=" expr
           | "inductive" ident univParams? binders? ":" expr "where" ctor*
-          | "init_quot"
           | "#check" expr
 ctor    ::= "|" ident ":" expr
 univParams ::= ".{" ident ("," ident)* "}"
@@ -96,7 +94,6 @@ Semantics:
 - **Constructor types omit the parameters** (Lean style): the type name, parameters, and universe
   parameters are in scope in constructor types, and the elaborator prepends the parameter binders to
   form the kernel constructor type.
-- `init_quot` → `addQuot()` (requires `Eq`).
 - `#check e` → display the type from `infer(e)` (does not change the env).
 
 ## 5. Name Resolution (Elaborator)

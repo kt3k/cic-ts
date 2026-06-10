@@ -10,7 +10,6 @@ import { type Name, nameToString } from "./name.ts";
 import { kernelError } from "./exception.ts";
 import { TypeChecker } from "./type_checker.ts";
 import { addInductive } from "./inductive.ts";
-import { addQuot } from "./quot.ts";
 
 export class Environment {
   constructor(private readonly consts: ReadonlyMap<string, ConstantInfo> = new Map()) {}
@@ -59,10 +58,5 @@ export class Environment {
   /** Type-check an inductive declaration and return an extended environment. */
   addInductive(decl: InductiveDeclaration): Environment {
     return addInductive(this, decl);
-  }
-
-  /** Add the `Quot` primitives (requires `Eq` to be present). */
-  addQuot(): Environment {
-    return addQuot(this);
   }
 }

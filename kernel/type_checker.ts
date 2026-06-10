@@ -2,8 +2,8 @@
 //
 // Implements `infer` / `whnf` / `isDefEq` / `check`, ported from the strategy in
 // Lean's `type_checker.cpp`. Phase 2 scope: Sort, Pi, Lambda, App, Const, Let,
-// FVar, MData. Inductive recursors (ι) and projections need Phase 3, and
-// quotients need Phase 4; those node kinds raise an "unsupported" error here.
+// FVar, MData. Inductive recursors (ι) and projections need Phase 3; those node
+// kinds raise an "unsupported" error here.
 //
 // `infer` is a *checking* inferer: it validates as it goes (argument types,
 // binder domains are sorts, etc.), so it doubles as the kernel's `check`.
@@ -297,13 +297,11 @@ export class TypeChecker {
 
   /**
    * Reduction steps tried (in order) after head reduction; the first that fires
-   * restarts {@link whnf}. The order matches the kernel: δ, ι, `Quot`, and
-   * projection.
+   * restarts {@link whnf}. The order matches the kernel: δ, ι, and projection.
    */
   private readonly whnfSteps: ((e: Expr) => Expr | undefined)[] = [
     (e) => this.unfoldDefinition(e), // δ
     (e) => this.reduceRecursor(e), // ι
-    (e) => this.reduceQuot(e), // Quot.lift / Quot.ind
     (e) => this.reduceProj(e), // projection
   ];
 
@@ -394,48 +392,6 @@ export class TypeChecker {
       rhs = mkAppN(rhs, recArgs.slice(majorIdx + 1));
     }
     return rhs;
-  }
-
-  /**
-   * Reduce `Quot.lift f h (Quot.mk r a) ⟶ f a` (and the analogous `Quot.ind`).
-   * Ported from the kernel's `quot_reduce_rec`.
-   */
-  private reduceQuot(e: Expr): Expr | undefined {
-    const fn = getAppFn(e);
-    if (fn.kind !== "const") return undefined;
-    const ci = this.env.find(fn.name);
-    if (ci === undefined || ci.kind !== "quot") return undefined;
-
-    // `Quot.lift`: f at arg 3, major (Quot.mk …) at arg 5. `Quot.ind`: f at 3, major at 4.
-    let mkPos: number;
-    let argPos: number;
-    if (ci.quotKind === "lift") {
-      mkPos = 5;
-      argPos = 3;
-    } else if (ci.quotKind === "ind") {
-      mkPos = 4;
-      argPos = 3;
-    } else {
-      return undefined;
-    }
-
-    const args = getAppArgs(e);
-    if (args.length <= mkPos) return undefined;
-    const mk = this.whnf(args[mkPos]!);
-    const mkFn = getAppFn(mk);
-    const mkArgs = getAppArgs(mk);
-    const mkCi = mkFn.kind === "const" ? this.env.find(mkFn.name) : undefined;
-    if (
-      mkCi === undefined || mkCi.kind !== "quot" || mkCi.quotKind !== "mk" || mkArgs.length !== 3
-    ) {
-      return undefined;
-    }
-
-    const f = args[argPos]!;
-    let r = mkApp(f, mkArgs[2]!); // the `a` inside Quot.mk α r a
-    const elimArity = mkPos + 1;
-    if (args.length > elimArity) r = mkAppN(r, args.slice(elimArity));
-    return r;
   }
 
   /** Reduce a projection applied to a constructor application. */

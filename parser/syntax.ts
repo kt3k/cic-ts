@@ -102,7 +102,6 @@ export type SCommand =
     readonly ctors: readonly SCtor[];
     readonly pos: Pos;
   }
-  | { readonly kind: "initQuot"; readonly pos: Pos }
   | { readonly kind: "check"; readonly expr: SExpr; readonly pos: Pos };
 
 /** A whole input file: a sequence of commands. */

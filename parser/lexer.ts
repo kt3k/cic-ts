@@ -28,7 +28,6 @@ const KEYWORDS: ReadonlySet<string> = new Set([
   "Sort",
   "Type",
   "Prop",
-  "init_quot",
   "#check",
 ]);
 

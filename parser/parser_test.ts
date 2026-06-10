@@ -127,10 +127,9 @@ Deno.test("inductive with parameters and constructors", () => {
   assertEquals(show(c.ctors[1]!.type), "(α -> ((List α) -> (List α)))");
 });
 
-Deno.test("init_quot and #check commands", () => {
-  const m = parse("init_quot\n#check Nat.zero");
-  assertEquals(m[0]!.kind, "initQuot");
-  const c = m[1]!;
+Deno.test("#check command", () => {
+  const m = parse("#check Nat.zero");
+  const c = m[0]!;
   assert(c.kind === "check");
   assertEquals(show(c.expr), "Nat.zero");
 });

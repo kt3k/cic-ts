@@ -1,9 +1,9 @@
 // Driver: run a surface-syntax module against a kernel environment.
 //
-// Ties the front end (parse → elaborate) to the kernel (addDecl / addInductive
-// / addQuot), threading an immutable Environment through the commands and
-// collecting `#check` results. Kernel errors are re-reported with the source
-// position of the command that triggered them.
+// Ties the front end (parse → elaborate) to the kernel (addDecl / addInductive),
+// threading an immutable Environment through the commands and collecting
+// `#check` results. Kernel errors are re-reported with the source position of
+// the command that triggered them.
 
 import { Environment } from "../kernel/environment.ts";
 import { TypeChecker } from "../kernel/type_checker.ts";
@@ -50,9 +50,6 @@ export function runModule(src: string, env: Environment = new Environment()): Ru
           break;
         case "inductive":
           cur = cur.addInductive(r.decl);
-          break;
-        case "initQuot":
-          cur = cur.addQuot();
           break;
         case "check": {
           const type = new TypeChecker(cur).infer(r.expr);

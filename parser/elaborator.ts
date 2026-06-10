@@ -40,7 +40,6 @@ import { ParseError, type SBinder, type SCommand, type SExpr, type SLevel } from
 export type ElabResult =
   | { readonly kind: "decl"; readonly decl: Declaration }
   | { readonly kind: "inductive"; readonly decl: InductiveDeclaration }
-  | { readonly kind: "initQuot" }
   | { readonly kind: "check"; readonly expr: Expr };
 
 // --- Levels -----------------------------------------------------------------
@@ -170,8 +169,6 @@ export function elaborate(cmd: SCommand): ElabResult {
       return { kind: "decl", decl: elabDefLike(cmd) };
     case "inductive":
       return { kind: "inductive", decl: elabInductive(cmd) };
-    case "initQuot":
-      return { kind: "initQuot" };
     case "check":
       return { kind: "check", expr: elabExpr(cmd.expr, [], []) };
   }

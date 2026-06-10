@@ -2,7 +2,7 @@
 //
 // Corresponds to Lean's `declaration.h`. Phase 2 covers the non-inductive
 // declarations: axioms, definitions, theorems, and opaque constants. Inductive
-// types (Phase 3) and quotients (Phase 4) extend this union later.
+// types (Phase 3) extend this union later.
 //
 // A `Declaration` is what the user submits to `Environment.addDecl`; a
 // `ConstantInfo` is what the environment stores after checking. They share the
@@ -94,26 +94,12 @@ export interface RecursorVal {
   readonly isUnsafe: boolean;
 }
 
-// --- Quotient types (Phase 4) ----------------------------------------------
-
-export type QuotKind = "type" | "mk" | "lift" | "ind";
-
-/** The stored info for one of the four `Quot` primitives. */
-export interface QuotVal {
-  readonly kind: "quot";
-  readonly name: Name;
-  readonly levelParams: readonly Name[];
-  readonly type: Expr;
-  readonly quotKind: QuotKind;
-}
-
 export type Declaration = AxiomVal | DefinitionVal | TheoremVal | OpaqueVal;
 export type ConstantInfo =
   | Declaration
   | InductiveVal
   | ConstructorVal
-  | RecursorVal
-  | QuotVal;
+  | RecursorVal;
 
 // --- Inductive declaration (input to Environment.addInductive) --------------
 
