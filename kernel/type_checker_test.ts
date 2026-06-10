@@ -1,10 +1,11 @@
 import { assert, assertEquals, assertFalse, assertThrows } from "@std/assert";
-import { nameFromString } from "./name.ts";
+import { anonymousName, nameFromString } from "./name.ts";
 import { levelZero, mkLevelLit, mkLevelParam, mkLevelSucc } from "./level.ts";
 import {
   type Expr,
   exprEq,
   mkApp,
+  mkAppN,
   mkBVar,
   mkConst,
   mkLambda,
@@ -182,4 +183,92 @@ Deno.test("universe-polymorphic identity", () => {
     KernelError,
   );
   assertEquals((err as KernelError).errorKind, "typeMismatch");
+});
+
+// --- builtin Nat reduction (literals in whnf / isDefEq) ---
+
+const anon = anonymousName;
+
+/** Environment with inductive `Nat` and `Bool` (for builtin Nat reduction). */
+function natEnv(): Environment {
+  let e = new Environment();
+  e = e.addInductive({
+    levelParams: [],
+    numParams: 0,
+    isUnsafe: false,
+    types: [{
+      name: Nat,
+      type: type1,
+      ctors: [{ name: natZero, type: natC }, { name: natSucc, type: mkPi(anon, natC, natC) }],
+    }],
+  });
+  const Bool = nameFromString("Bool");
+  const boolC = mkConst(Bool);
+  e = e.addInductive({
+    levelParams: [],
+    numParams: 0,
+    isUnsafe: false,
+    types: [{
+      name: Bool,
+      type: type1,
+      ctors: [
+        { name: nameFromString("Bool.true"), type: boolC },
+        { name: nameFromString("Bool.false"), type: boolC },
+      ],
+    }],
+  });
+  return e;
+}
+
+const natTc = new TypeChecker(natEnv());
+const bin = (op: string, a: bigint, b: bigint): Expr =>
+  mkAppN(mkConst(nameFromString(op)), [mkNatLit(a), mkNatLit(b)]);
+
+Deno.test("Nat.succ on a literal collapses to a literal", () => {
+  assert(natTc.isDefEq(mkApp(succ, mkNatLit(4n)), mkNatLit(5n)));
+  // succ (succ zero) ≡ 2  -- constructor form meets literal form
+  assert(natTc.isDefEq(mkApp(succ, mkApp(succ, zero)), mkNatLit(2n)));
+});
+
+Deno.test("Nat arithmetic on literals", () => {
+  assert(natTc.isDefEq(bin("Nat.add", 20n, 22n), mkNatLit(42n)));
+  assert(natTc.isDefEq(bin("Nat.sub", 5n, 8n), mkNatLit(0n))); // truncated
+  assert(natTc.isDefEq(bin("Nat.sub", 10n, 3n), mkNatLit(7n)));
+  assert(natTc.isDefEq(bin("Nat.mul", 6n, 7n), mkNatLit(42n)));
+  assert(natTc.isDefEq(bin("Nat.div", 17n, 5n), mkNatLit(3n)));
+  assert(natTc.isDefEq(bin("Nat.div", 1n, 0n), mkNatLit(0n))); // div by zero = 0
+  assert(natTc.isDefEq(bin("Nat.mod", 17n, 5n), mkNatLit(2n)));
+  assert(natTc.isDefEq(bin("Nat.mod", 7n, 0n), mkNatLit(7n))); // mod by zero = n
+  assert(natTc.isDefEq(bin("Nat.pow", 2n, 10n), mkNatLit(1024n)));
+  assert(natTc.isDefEq(bin("Nat.gcd", 12n, 18n), mkNatLit(6n)));
+});
+
+Deno.test("Nat bitwise operations on literals", () => {
+  assert(natTc.isDefEq(bin("Nat.land", 12n, 10n), mkNatLit(8n)));
+  assert(natTc.isDefEq(bin("Nat.lor", 12n, 10n), mkNatLit(14n)));
+  assert(natTc.isDefEq(bin("Nat.xor", 12n, 10n), mkNatLit(6n)));
+  assert(natTc.isDefEq(bin("Nat.shiftLeft", 1n, 4n), mkNatLit(16n)));
+  assert(natTc.isDefEq(bin("Nat.shiftRight", 100n, 2n), mkNatLit(25n)));
+});
+
+Deno.test("Nat comparisons reduce to Bool constructors", () => {
+  assert(natTc.isDefEq(bin("Nat.beq", 7n, 7n), mkConst(nameFromString("Bool.true"))));
+  assert(natTc.isDefEq(bin("Nat.beq", 7n, 8n), mkConst(nameFromString("Bool.false"))));
+  assert(natTc.isDefEq(bin("Nat.ble", 3n, 5n), mkConst(nameFromString("Bool.true"))));
+  assert(natTc.isDefEq(bin("Nat.ble", 5n, 3n), mkConst(nameFromString("Bool.false"))));
+});
+
+Deno.test("builtins compose and respect Nat.zero as a literal", () => {
+  // (2 + 3) * (10 - 4) = 30
+  const e = mkAppN(mkConst(nameFromString("Nat.mul")), [
+    bin("Nat.add", 2n, 3n),
+    bin("Nat.sub", 10n, 4n),
+  ]);
+  assert(natTc.isDefEq(e, mkNatLit(30n)));
+  // Nat.zero counts as the literal 0
+  assert(
+    natTc.isDefEq(mkAppN(mkConst(nameFromString("Nat.add")), [zero, mkNatLit(9n)]), mkNatLit(9n)),
+  );
+  // distinct results are not defeq
+  assertFalse(natTc.isDefEq(bin("Nat.add", 1n, 1n), mkNatLit(3n)));
 });
