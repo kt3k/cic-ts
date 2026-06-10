@@ -1,12 +1,14 @@
-# cic-ts — Specification (SPEC)
+# cic-ts — Kernel Specification (KERNEL_SPEC)
 
-A TypeScript port of the Lean 4 kernel (`src/kernel/`). It implements the **minimal Trusted
-Computing Base (TCB)** of the dependent type theory known as the Calculus of Inductive Constructions
-(CIC).
+A TypeScript implementation of the **minimal Trusted Computing Base (TCB)** of the dependent type
+theory known as the Calculus of Inductive Constructions (CIC). Its design is modeled on the Lean 4
+kernel, but it is **not a line-by-line port**: the goal is to perform the _same verification_
+conceptually, while staying small and idiomatic in TypeScript. Where a simpler structure checks the
+same terms, it is preferred over mirroring Lean's file layout.
 
-Elaboration, tactics, the parser, and surface syntax are out of scope. This project is responsible
-only for: "take a fully elaborated term (`Expr`) and independently verify that it has the type it
-claims to have."
+Elaboration, tactics, the parser, and surface syntax are out of scope (the parser lives separately
+under `parser/`, see `PARSER_SPEC.md`). The kernel is responsible only for: "take a fully elaborated
+term (`Expr`) and independently verify that it has the type it claims to have."
 
 ---
 
@@ -14,11 +16,18 @@ claims to have."
 
 1. **Keep it small and simple.** The soundness of the kernel depends on this code alone. When
    convenience or performance trades off against soundness, soundness wins.
-2. **Immutable.** `Expr` / `Level` are immutable. Transformations always return new values.
-3. **Structural sharing and hash-consing.** To handle very large terms, design around structural
-   equality and caching from the start.
-4. **Fidelity to the reference implementation.** Each module corresponds to a file in the Lean
-   kernel; if behavior diverges, the Lean side is authoritative.
+2. **Immutable.** `Expr` / `Level` / `Name` are immutable. Transformations always return new values,
+   and the `Environment` is extended persistently.
+3. **Cached structural hashing.** Every `Name` / `Level` / `Expr` node precomputes a 32-bit
+   structural `hash` (and `Expr` also caches the flags in §2.3). Equality is then a fast reference
+   check (`a === b`), a fast hash reject (`a.hash !== b.hash`), and only otherwise a structural
+   recursion. This is **not** full hash-consing — constructors do not intern nodes into a shared
+   table — but it gives the same fast-path behavior for large terms. The exact hash values are an
+   implementation detail; only determinism and a reasonable distribution matter (see `hash.ts`).
+4. **Conceptual fidelity, not literal fidelity.** The type theory being checked is the same as
+   Lean's CIC (the rules for `Sort`/`imax`, definitional equality, inductives, recursors, quotients,
+   proof irrelevance). The _implementation_ is free to diverge in structure, naming, and module
+   boundaries as long as it accepts/rejects the same terms.
 
 ---
 
@@ -27,8 +36,8 @@ claims to have."
 - Bound variables are represented with **de Bruijn indices**. The innermost binder is `0`. This
   removes the need to reason about α-conversion.
 - Input terms to the kernel are assumed to be fully elaborated and to contain **no metavariables
-  (`MVar`)**. The `MVar` node exists in the representation but must never appear in a term being
-  type-checked (if it does, it is an error).
+  (`MVar`)**. The `MVar` node (and the universe `mvar`) exists in the representation but must never
+  appear in a term being type-checked (if it does, it is an error).
 - All implicit and instance arguments are assumed to be made explicit. `BinderInfo` is retained
   (informational only) and does not affect soundness.
 
@@ -36,7 +45,7 @@ claims to have."
 
 ## 2. Data Representation
 
-### 2.1 `Name` (`name`)
+### 2.1 `Name` (`name.ts`)
 
 Hierarchical names, e.g. `Nat.succ` (a `.`-separated name).
 
@@ -47,10 +56,10 @@ type Name =
   | { kind: "num"; prefix: Name; num: bigint };
 ```
 
-- Provides equality and hashing.
-- Provides conversion to/from strings (`Name.fromString("Nat.succ")`, `name.toString()`).
+- Provides equality (`nameEq`) and a cached `hash`.
+- Provides conversion to/from strings (`nameFromString("Nat.succ")`, `nameToString(name)`).
 
-### 2.2 `Level` (`level.h/.cpp`)
+### 2.2 `Level` (`level.ts`)
 
 Universe levels — the `u` in `Sort u`.
 
@@ -64,19 +73,21 @@ type Level =
   | { kind: "mvar"; name: Name }; // universe metavariable (must not appear in input)
 ```
 
-Required operations:
+Operations:
 
-- **Normalization / reduction** — the normal form after applying the reduction rules for `max`,
+- **`normalizeLevel(level)`** — the normal form after applying the reduction rules for `max`,
   `imax`, `succ`.
-- **`isEquiv(a, b)`** — definitional equality (not the order; `≤` in both directions).
-- **`leq(a, b)`** — the partial order `a ≤ b` (needed when comparing `Sort`s during type checking).
-- **`instantiate(level, params, args)`** — substitute parameters with level arguments (used when
-  unfolding universe-polymorphic constants).
+- **`levelIsEquiv(a, b)`** — definitional equality of levels (`≤` in both directions).
+- **`levelLeq(a, b)` / `levelGeq(a, b)`** — the partial order `a ≤ b` (needed when comparing `Sort`s
+  during type checking).
+- **`levelInstantiate(level, params, args)`** — substitute parameters with level arguments (used
+  when unfolding universe-polymorphic constants).
+- Helpers: `toOffset` (split `u + k` into `(u, k)`), `isExplicit`, `isNotZero`, `levelHasMVar`.
 
 Meaning of `imax`: `imax u v = 0` if `v = 0`, else `max u v`. This is essential to handle the
 non-cumulativity of `Prop` (= `Sort 0`).
 
-### 2.3 `Expr` (`expr.h/.cpp`)
+### 2.3 `Expr` (`expr.ts`)
 
 The central term representation of the kernel. Twelve kinds.
 
@@ -105,59 +116,67 @@ type Literal =
   | { kind: "natVal"; value: bigint }
   | { kind: "strVal"; value: string }
 
-type KVMap = ...   // key-value map for metadata (may be ignored during type checking)
+type KVMap = ...   // key-value map for metadata (ignored during type checking)
 ```
 
-Provide constructors for each node (`mkBVar`, `mkApp`, `mkLambda`, ...).
+There is a constructor for each node (`mkBVar`, `mkApp`, `mkLambda`, `mkNatLit`, ...). The `mvar`,
+`strVal`-literal, and `mdata` node kinds exist for completeness but are not produced by the surface
+front end; they are exercised by the kernel's own invariant tests.
 
-**Cache flags:** each `Expr` should be able to carry the following as precomputed values for
-efficiency (Lean embeds these as bits on each node):
+**Cache flags:** every `Expr` carries the following as precomputed values (set by the constructors):
 
-- `hash`: structural hash
-- `hasFVar`, `hasMVar`, `hasLevelMVar`: whether it contains free variables / metavariables
+- `hash`: structural hash (§0, principle 3)
+- `hasFVar`, `hasMVar`, `hasLevelMVar`: whether it contains free variables / metavariables / level
+  metavariables
 - `looseBVarRange`: the maximum loose (unbound) BVar index contained + 1 (used for early cutoff in
-  `instantiate`/`abstract`)
-
-These may be computed lazily in a first implementation, but become essential for large terms.
+  `instantiate` / `abstract`)
 
 ---
 
-## 3. Core Term Operations
+## 3. Core Term Operations (`expr.ts`)
 
-References: `instantiate.cpp`, `abstract.cpp`, `replace_fn`, `for_each_fn`, `find_fn`.
+The traversal combinators and the de Bruijn operations live alongside the `Expr` definition in
+`expr.ts` (in earlier revisions these were separate `traverse.ts` / `instantiate.ts` modules; they
+were consolidated since the operations are tiny and share the same recursion skeleton).
 
 ### 3.1 Traversal combinators
 
-- **`forEach(e, f)`** — visit subterms.
+- **`forEach(e, f)`** — visit every subterm.
+- **`find(e, pred)`** — find the first subterm satisfying a predicate.
 - **`replace(e, f)`** — `f` returns `Expr | null`; `null` means recurse into children.
-- **`find(e, pred)`** — find a subterm satisfying a predicate.
+- **`mapChildren(e, g)`** / **`mapChildrenWithDepth(e, g)`** — rebuild a node from mapped immediate
+  children (the latter tracks binder depth).
+- Spine helpers: **`getAppFn(e)`**, **`getAppArgs(e)`**.
 
 ### 3.2 `instantiate` (substituting bound variables)
 
 - **`instantiate1(e, v)`** — replace `BVar 0` in `e` with `v` and decrement the outer BVars. The
   core of β-reduction and computing the result type of a Pi.
-- **`instantiate(e, vs)`** — substitute several BVars at once (`vs[i]` corresponds to `BVar i`).
-- During substitution, loose BVars inside `v` must be shifted by the depth at which they are
-  inserted (lifting).
+- **`instantiate(e, subst)`** — substitute several BVars at once (`subst[i]` corresponds to
+  `BVar i`); **`instantiateRev(e, subst)`** uses `subst[n-1-i]`.
+- During substitution, loose BVars inside `v` are shifted by the depth at which they are inserted
+  (lifting). Closed terms are returned unchanged (and identically), using the `looseBVarRange`
+  cutoff.
 
 ### 3.3 `abstract` (abstracting free variables) — the inverse of `instantiate`
 
 - **`abstract(e, fvars)`** — replace the free variables listed in `fvars` with the corresponding
-  `BVar`s. Used when constructing `lam`/`pi`/`let`.
+  `BVar`s. Used when constructing `lam` / `pi` / `let`.
 
-### 3.4 `liftLooseBVars` / `lowerLooseBVars`
+### 3.4 `liftLooseBVars` / `lowerLooseBVars` / `instantiateLevelParams`
 
-- Helpers for shifting loose BVars.
+- Helpers for shifting loose BVars and for substituting universe parameters inside an `Expr`.
 
 > For soundness, the offset arithmetic of these de Bruijn operations is the most error-prone part.
-> Lock it down with tests first (Section 9).
+> It is locked down with direct unit tests (§9).
 
 ---
 
-## 4. Local Context (`local_ctx.h/.cpp`)
+## 4. Local Context (inside `type_checker.ts`)
 
-While type checking, when going under a binder, temporarily replace the `BVar` with a fresh `FVar`
-(locally nameless style).
+While type checking, when going under a binder, the bound variable is temporarily replaced by a
+fresh `FVar` (locally nameless style). This is a small persistent map and lives **inside**
+`type_checker.ts` rather than as its own module:
 
 ```ts
 interface LocalDecl {
@@ -166,23 +185,18 @@ interface LocalDecl {
   type: Expr;
   value?: Expr; // present if it is a let-binding
 }
-
-interface LocalContext {
-  mkLocalDecl(name: Name, type: Expr, info?: BinderInfo): { ctx: LocalContext; fvar: Expr };
-  find(fvarId: Name): LocalDecl | undefined;
-  // ...
-}
 ```
 
-- Holds a generator for fresh `FVar` `Name`s.
-- When going under the body of a `pi`/`lam`: `instantiate1(body, freshFVar)`, process the body, then
-  `abstract` on the way back out.
+- The `TypeChecker` holds a fresh-`FVar` name generator and the current `LocalContext`.
+- When going under the body of a `pi` / `lam`: `instantiate1(body, freshFVar)`, process the body,
+  then `abstract` on the way back out.
 
 ---
 
-## 5. Type Checker (`type_checker.h/.cpp`) — the core
+## 5. Type Checker (`type_checker.ts`) — the core
 
-The most important module. Implement the following.
+`TypeChecker` is a class constructed from an `Environment`. It exposes `infer`, `whnf`, `isDefEq`,
+and `check` (plus the helpers `ensureSort` / `ensurePi`).
 
 ### 5.1 `infer(e): Expr` — type inference
 
@@ -192,11 +206,11 @@ Typing rules per node:
   discipline). If it appears, error.
 - **`fvar`** — look up the type from the local context.
 - **`sort u`** — its type is `Sort (u + 1)`.
-- **`const n [us]`** — look up the declaration from the environment and `instantiate` its type's
-  universe parameters with `us`. The count of `us` must match the declaration's number of universe
-  parameters.
-- **`app f a`** — reduce `infer(f)` to WHNF to get `Pi x t b`. Check that `a` has type `t`
-  (`infer(a)` is defeq to `t`); the result type is `instantiate1(b, a)`.
+- **`const n [us]`** — look up the declaration from the environment and `levelInstantiate` its
+  type's universe parameters with `us`. The count of `us` must match the declaration's number of
+  universe parameters.
+- **`app f a`** — reduce `infer(f)` to WHNF to get `Pi x t b` (via `ensurePi`). Check that `a` has
+  type `t`; the result type is `instantiate1(b, a)`.
 - **`lam x t b`** — check that `t` is a type (`infer(t)` is a `Sort`). Infer the body under an
   `fvar` to get `bt`; the type is `Pi x t (abstract bt)`.
 - **`pi x t b`** — get `infer(t) = Sort u` and, on the body side, `infer(b) = Sort v`; the type is
@@ -205,7 +219,7 @@ Typing rules per node:
 - **`lit (natVal _)`** — `Nat`. **`lit (strVal _)`** — `String`.
 - **`proj s i e`** — reduce `infer(e)` to WHNF to get the structure type `S ...`, then return the
   type of the `i`-th field of `S`'s unique constructor, `instantiate`d with the projections of the
-  preceding fields (mind dependent projections).
+  preceding fields (dependent projections).
 - **`mdata d e`** — `infer(e)`.
 - **`mvar`** — error (must not reach the kernel).
 
@@ -214,169 +228,193 @@ Typing rules per node:
 Reduce until the head can no longer be reduced. Reduction rules:
 
 - **β** — `(fun x => b) a  ⟶  instantiate1(b, a)`
-- **δ** — unfold a constant with its definition body (`definition`/`theorem`).
+- **δ** — unfold a constant with its definition body (`definition` / `theorem`).
 - **ζ** — `let x := v; b  ⟶  instantiate1(b, v)`
-- **ι** — reduction when a recursor is applied to constructor arguments. Includes the
-  `quot.lift`/`quot.ind` reductions.
+- **ι** — reduction when a recursor is applied to constructor arguments. Includes the `Quot.lift` /
+  `Quot.ind` reductions.
 - **proj reduction** — `proj i (ctor ... fieldᵢ ...)  ⟶  fieldᵢ`
-- **Nat literals** — built-in computation of `Nat.succ`, `Nat.add`, etc. (optional, for performance;
-  must match Lean's behavior exactly for soundness).
-- δ-unfolding is lazy and done only when necessary (lazy unfolding during `isDefEq`).
+- **Nat literals** — built-in computation on `natVal` literals (`Nat.succ`, `Nat.add`, `Nat.mul`,
+  comparisons reducing to `Bool`, bitwise ops, …), so closed `Nat` arithmetic reduces directly
+  rather than through the recursor. The results follow the standard `Nat` semantics.
+- δ-unfolding is lazy and done only when necessary.
 
 ### 5.3 `isDefEq(a, b): boolean` — definitional equality
 
 Whether the two are definitionally equal. Outline:
 
-1. If structurally equal, `true` (sped up by hash-consing).
+1. If structurally equal (reference / hash / structure), `true`.
 2. Reduce both to WHNF.
 3. Case split on the heads:
-   - `sort u` vs `sort v` → `Level.isEquiv(u, v)`
+   - `sort u` vs `sort v` → `levelIsEquiv(u, v)`
    - `const n us` vs `const m vs` → names equal and level lists equiv (otherwise δ-unfold and retry)
    - `app` vs `app` → recursively compare function and spine (lazy δ)
-   - `pi`/`lam` → recursively compare binder types and bodies (under an fvar)
+   - `pi` / `lam` → recursively compare binder types and bodies (under an fvar)
    - `lit` → values equal
    - `proj` → struct and index equal + subterm
 4. **η-expansion** — `fun x => f x` vs `f`, for function types.
 5. **proof irrelevance** — inhabitants of a `Prop` are always equal if their types are defeq.
 6. Retry while interleaving δ-unfolding and Nat-literal expansion.
 
-> `isDefEq` is the crux of termination and soundness. Follow Lean's strategies such as
-> `lazy_delta_reduction`.
+> `isDefEq` is the crux of termination and soundness.
 
-### 5.4 `check(e, expectedType)`
+### 5.4 `check(e, expectedType): void`
 
-Verify `isDefEq(infer(e), expectedType)`.
+Verify `isDefEq(infer(e), expectedType)`; throws a `KernelError` (type mismatch) if not.
 
-### 5.5 Exceptions
+### 5.5 Exceptions (`exception.ts`)
 
-Define an error type corresponding to `kernel_exception.h`: type mismatch, unknown constant,
-universe parameter count mismatch, unbound variable, occurrence of `MVar`, invalid recursor
-application, and so on.
+`KernelError` carries an `errorKind` tag: type mismatch, unknown constant, universe parameter count
+mismatch, unbound variable, occurrence of `MVar`, invalid recursor / inductive application,
+already-declared name, and so on.
 
 ---
 
-## 6. Declarations and Environment (`declaration.h/.cpp`, `environment.h/.cpp`)
+## 6. Declarations and Environment (`declaration.ts`, `environment.ts`)
 
-### 6.1 `Declaration`
+### 6.1 Declarations and stored constants
+
+`Declaration` is the set of _input builders_ type-checked by `addDecl`. Inductives and quotients are
+**not** `Declaration` kinds — they have their own entry points (§6.2):
 
 ```ts
-type Declaration =
-  | { kind: "axiom"; name: Name; levelParams: Name[]; type: Expr; isUnsafe: boolean }
-  | { kind: "definition"; name: Name; levelParams: Name[]; type: Expr; value: Expr; ... }
-  | { kind: "theorem"; name: Name; levelParams: Name[]; type: Expr; value: Expr }
-  | { kind: "opaque"; ... }
-  | { kind: "quot" }                       // introduce the quotient-type primitives
-  | { kind: "inductive"; ... }             // Section 7
+type Declaration = AxiomVal | DefinitionVal | TheoremVal | OpaqueVal;
 ```
+
+built with `mkAxiom` / `mkDefinition` / `mkTheorem` / `mkOpaque`. What is _stored_ in the
+environment is a `ConstantInfo`, which additionally covers the constants that inductive/quotient
+processing generates:
+
+```ts
+type ConstantInfo =
+  | Declaration
+  | InductiveVal // the inductive type itself
+  | ConstructorVal // each constructor
+  | RecursorVal // the generated recursor (with its RecursorRule ι-rules)
+  | QuotVal; // a Quot primitive
+```
+
+Inductive _input_ is an `InductiveDeclaration`
+(`{ levelParams, numParams, types: InductiveType[],
+... }`, each `InductiveType` carrying its
+`Constructor[]`).
 
 ### 6.2 `Environment`
 
-The collection of declarations verified and accepted so far.
+The collection of declarations verified and accepted so far. Immutable.
 
 ```ts
-interface Environment {
+class Environment {
   find(name: Name): ConstantInfo | undefined;
-  // Type-check a declaration before adding it. This is the main entry point of the kernel.
-  addDecl(decl: Declaration): Environment; // throws on failure
+  contains(name: Name): boolean;
+  addDecl(decl: Declaration): Environment; // axiom/definition/theorem/opaque — throws on failure
+  addInductive(decl: InductiveDeclaration): Environment; // §7
+  addQuot(): Environment; // §8
 }
 ```
 
 What `addDecl` does:
 
-1. Check that the declaration's `type` is itself well-typed (`infer(type)` is a `Sort`).
-2. For `definition`/`theorem`, `check(value, type)`.
-3. For `inductive`, the verification in Section 7.
-4. If it passes, register it in the environment.
+1. Reject a name that is already declared.
+2. Check that the declaration's `type` is itself well-typed (`infer(type)` is a `Sort`).
+3. For `definition` / `theorem` / `opaque`, `check(value, type)`.
+4. If it passes, register the resulting `ConstantInfo` in the environment.
 
-The environment is extended immutably (persistent data structure, or copy-on-write Map).
+The environment is extended immutably (a copy-on-write `Map` keyed by the name string).
 
 ---
 
-## 7. Inductive Types (`inductive.h/.cpp`)
+## 7. Inductive Types (`inductive.ts`)
 
-The most complex part of the kernel. May be deferred in the MVP, but is required to handle
-`Nat`/`List`/`Eq`.
+The most complex part of the kernel. Entered via `Environment.addInductive`. It handles `Nat` /
+`Bool` / `List` / `Eq` and the like.
 
-What to implement:
+What it does:
 
-1. **Verification of inductive declarations** — check that the parameter count, and the type of each
+1. **Verification of the inductive declaration** — check the parameter count and the type of each
    constructor:
-   - has a result that is the inductive type in question,
-   - satisfies **strict positivity** (the inductive type does not occur in a negative position of
+   - its result is the inductive type in question,
+   - it satisfies **strict positivity** (the inductive type does not occur in a negative position of
      its own constructor arguments),
-   - satisfies the universe constraints (such as the restriction on eliminating into `Prop`).
+   - it satisfies the universe constraints (e.g. the restriction on eliminating into `Prop`).
 2. **Automatic generation of the recursor** — construct the type of the eliminator with its motive,
-   minor premises, and major premise, and add it to the environment.
-3. **Registration of the ι-reduction rule** —
+   minor premises, and major premise, and add it to the environment as a `RecursorVal`.
+3. **Registration of the ι-reduction rules** (`RecursorRule`) —
    `rec ... (ctorᵢ args)  ⟶  (apply the i-th minor premise to args and the recursive results)`. WHNF
-   uses this.
-4. **Determination of subsingleton / large elimination** (a `Prop` inductive can be eliminated into
-   `Type` only under specific conditions, such as a single constructor).
-
-> Incrementally: start with simple inductives without parameters (`Nat`, `Bool`), then parameterized
-> ones (`List`), and finally indexed ones (`Eq`, `Vector`).
+   uses these.
+4. **Subsingleton / large elimination** — a `Prop` inductive may be eliminated into `Type` only
+   under specific conditions (such as a single constructor), e.g. `Eq`'s K-like reduction.
 
 ---
 
-## 8. Quotient Types (`quot.h/.cpp`)
+## 8. Quotient Types (`quot.ts`)
 
-One of the few axiomatic constructs Lean trusts as built-in. Introduce `Quot`, `Quot.mk`,
-`Quot.lift`, `Quot.ind`, and incorporate the computation rule `Quot.lift f h (Quot.mk r a)  ⟶  f a`
-into WHNF / `isDefEq`.
-
----
-
-## 9. Test Strategy (lock down in parallel with implementation, as the top priority)
-
-Since soundness is everything, test both sides thickly: "accept correct terms" and "reject
-ill-formed terms."
-
-1. **Unit tests for de Bruijn operations** — boundary cases of offsets for `instantiate1` /
-   `abstract` / `liftLooseBVars`. Compare against hand-computed expected values.
-2. **Level normalization** — representative cases of `max`/`imax`/`succ`, and the partial order
-   `leq`.
-3. **Golden tests for type inference** — verify the types of the canonical examples in Section 2,
-   e.g. `fun (x : Nat) => x : Nat → Nat`.
-4. **Positive and negative cases for defeq** — each of β/δ/ζ/η/proof-irrelevance.
-5. **Rejection tests (the heart of soundness)** — that type mismatches, universe parameter count
-   mismatches, loose BVars, occurrences of `MVar`, positivity-violating inductives, etc. **always**
-   throw.
-6. **Cross-checking (ideal)** — `#check` / export small terms in Lean 4 and confirm cic-ts agrees.
-   Being able to read Lean's `.olean` / environment export format would be powerful.
+One of the few axiomatic constructs trusted as built-in. `Environment.addQuot` introduces `Quot`,
+`Quot.mk`, `Quot.lift`, `Quot.ind` (it requires `Eq` to already be present), and the computation
+rule `Quot.lift f h (Quot.mk r a)  ⟶  f a` is incorporated into WHNF / `isDefEq`.
 
 ---
 
-## 10. Module Layout (correspondence with the Lean kernel)
+## 9. Test Strategy
 
-| cic-ts module      | Lean kernel                            | Contents                                       |
-| ------------------ | -------------------------------------- | ---------------------------------------------- |
-| `name.ts`          | `name` (lean)                          | hierarchical names                             |
-| `level.ts`         | `level.{h,cpp}`                        | universe levels, normalization, ordering       |
-| `expr.ts`          | `expr.{h,cpp}`                         | `Expr` representation and constructors         |
-| `traverse.ts`      | `for_each_fn`, `replace_fn`, `find_fn` | traversal combinators                          |
-| `instantiate.ts`   | `instantiate.cpp`, `abstract.cpp`      | de Bruijn substitution / abstraction           |
-| `local_context.ts` | `local_ctx.{h,cpp}`                    | local context                                  |
-| `declaration.ts`   | `declaration.{h,cpp}`                  | declarations                                   |
-| `environment.ts`   | `environment.{h,cpp}`                  | environment and `addDecl`                      |
-| `type_checker.ts`  | `type_checker.{h,cpp}`                 | `infer` / `whnf` / `isDefEq` / `check`         |
-| `inductive.ts`     | `inductive.{h,cpp}`                    | inductive verification and recursor generation |
-| `quot.ts`          | `quot.{h,cpp}`                         | quotient types                                 |
-| `exception.ts`     | `kernel_exception.h`                   | kernel exceptions                              |
+Since soundness is everything, both sides are tested thickly: "accept correct terms" and "reject
+ill-formed terms." Each kernel test file mirrors a source module (six files, `*_test.ts`):
+
+| test file              | covers                                                         |
+| ---------------------- | -------------------------------------------------------------- |
+| `name_test.ts`         | name equality / hashing / string round-trip                    |
+| `level_test.ts`        | level construction, normalization, equivalence, ordering       |
+| `expr_test.ts`         | constructors, cache flags, traversal, de Bruijn operations     |
+| `type_checker_test.ts` | `infer` / `isDefEq` (β/δ/ζ/η/proof-irrelevance), builtin `Nat` |
+| `inductive_test.ts`    | inductive verification, recursor + ι-reduction, rejections     |
+| `quot_test.ts`         | the `Quot` family and its computation rule                     |
+
+Emphasis:
+
+1. **de Bruijn operations** — boundary cases of offsets for `instantiate1` / `abstract` /
+   `liftLooseBVars`, against hand-computed expected values.
+2. **Level normalization** — representative cases of `max` / `imax` / `succ`, and the order `leq`.
+3. **Type inference golden cases** — e.g. `fun (x : Nat) => x : Nat → Nat`.
+4. **defeq positive/negative** — each of β / δ / ζ / η / proof-irrelevance.
+5. **Rejection tests (the heart of soundness)** — type mismatches, universe parameter count
+   mismatches, loose BVars, positivity-violating inductives, etc. **always** throw.
 
 ---
 
-## 11. Implementation Phases (recommended order)
+## 10. Module Layout
 
-1. **Phase 0 — Representation**: `Name`, `Level`, `Expr` with constructors, equality, hashing.
-2. **Phase 1 — Operations**: traversal combinators, `instantiate` / `abstract`, Level normalization.
-   Lock these down with tests.
-3. **Phase 2 — Core type checker**: `infer` / `whnf` / `isDefEq` (β/δ/ζ/η/proof-irrelevance).
-   Without inductives or quotients, covering `Sort`/`Pi`/`Lambda`/`App`/`Const`/`Let`. `addDecl` for
-   `axiom`/`definition`/`theorem`.
-4. **Phase 3 — Inductive types**: verification + recursor generation + ι-reduction.
-   `Nat`/`Bool`/`List`/`Eq`.
-5. **Phase 4 — Quotient types**: the `Quot` family and its computation rule.
-6. **Phase 5 — Polish**: built-in computation for literals (fast `Nat` arithmetic), optimization of
-   `proj` reduction, cross-checking against Lean.
+The kernel is roughly modeled on the Lean 4 kernel's decomposition, but several small modules have
+been consolidated (traversal and de Bruijn ops into `expr.ts`; level normalization into `level.ts`;
+the local context into `type_checker.ts`).
 
-For each phase, achieve "clean build + the relevant tests pass" before moving on.
+| cic-ts module     | Contents                                                         |
+| ----------------- | ---------------------------------------------------------------- |
+| `name.ts`         | hierarchical names                                               |
+| `level.ts`        | universe levels, normalization, ordering, instantiation          |
+| `expr.ts`         | `Expr` representation, constructors, traversal, de Bruijn ops    |
+| `hash.ts`         | deterministic 32-bit hashing utilities (backs the cached `hash`) |
+| `declaration.ts`  | declaration / constant-info types and the `mk*` input builders   |
+| `environment.ts`  | the `Environment` and `addDecl` / `addInductive` / `addQuot`     |
+| `type_checker.ts` | `infer` / `whnf` / `isDefEq` / `check` and the local context     |
+| `inductive.ts`    | inductive verification and recursor generation                   |
+| `quot.ts`         | quotient types                                                   |
+| `exception.ts`    | `KernelError`                                                    |
+| `mod.ts`          | the public entry point (re-exports the API surface)              |
+
+---
+
+## 11. Implementation Status
+
+All of the following are implemented and covered by tests:
+
+1. **Representation** — `Name`, `Level`, `Expr` with constructors, equality, cached hashing/flags.
+2. **Operations** — traversal combinators, `instantiate` / `abstract`, level normalization.
+3. **Core type checker** — `infer` / `whnf` / `isDefEq` (β/δ/ζ/η/proof-irrelevance) over `Sort` /
+   `Pi` / `Lambda` / `App` / `Const` / `Let`, and `addDecl` for `axiom` / `definition` / `theorem` /
+   `opaque`.
+4. **Inductive types** — verification + recursor generation + ι-reduction (`Nat` / `Bool` / `List` /
+   `Eq`).
+5. **Quotient types** — the `Quot` family and its computation rule.
+6. **Built-in literal computation** — fast `Nat` arithmetic on `natVal` literals during WHNF.
+
+Possible future work: cross-checking exported terms against Lean 4, and reading Lean's environment
+export format.
