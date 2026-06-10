@@ -343,35 +343,31 @@ export class TypeChecker {
 
   // --- Weak head normal form (Section 5.2) ---------------------------------
 
+  /**
+   * Reduction steps tried (in order) after head reduction; the first that fires
+   * restarts {@link whnf}. The order matches the kernel: builtin `Nat`, then δ,
+   * ι, `Quot`, and projection.
+   */
+  private readonly whnfSteps: ((e: Expr) => Expr | undefined)[] = [
+    (e) => this.reduceNat(e), // builtin Nat arithmetic on literals
+    (e) => this.unfoldDefinition(e), // δ
+    (e) => this.reduceRecursor(e), // ι
+    (e) => this.reduceQuot(e), // Quot.lift / Quot.ind
+    (e) => this.reduceProj(e), // projection
+  ];
+
   /** Reduce `e` to weak head normal form (β/ζ, δ, ι, and projection). */
   whnf(e: Expr): Expr {
     let cur = e;
+    outer:
     for (;;) {
       const core = this.whnfCore(cur);
-      const nat = this.reduceNat(core); // builtin Nat arithmetic on literals
-      if (nat !== undefined) {
-        cur = nat;
-        continue;
-      }
-      const unfolded = this.unfoldDefinition(core);
-      if (unfolded !== undefined) {
-        cur = unfolded;
-        continue;
-      }
-      const reduced = this.reduceRecursor(core); // ι
-      if (reduced !== undefined) {
-        cur = reduced;
-        continue;
-      }
-      const quot = this.reduceQuot(core); // Quot.lift / Quot.ind
-      if (quot !== undefined) {
-        cur = quot;
-        continue;
-      }
-      const projected = this.reduceProj(core);
-      if (projected !== undefined) {
-        cur = projected;
-        continue;
+      for (const step of this.whnfSteps) {
+        const next = step(core);
+        if (next !== undefined) {
+          cur = next;
+          continue outer;
+        }
       }
       return core;
     }

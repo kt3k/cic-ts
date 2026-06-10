@@ -10,6 +10,7 @@
 import {
   type Expr,
   exprEq,
+  find,
   getAppArgs,
   getAppFn,
   instantiate1,
@@ -481,26 +482,7 @@ function countPis(e: Expr): number {
 function occursIn(name: Name, e: Expr, skipBinders: number): boolean {
   let t = e;
   for (let i = 0; i < skipBinders && t.kind === "pi"; i++) t = t.body;
-  return occursCore(name, t);
-}
-
-function occursCore(name: Name, e: Expr): boolean {
-  switch (e.kind) {
-    case "const":
-      return nameEq(e.name, name);
-    case "app":
-      return occursCore(name, e.fn) || occursCore(name, e.arg);
-    case "lam":
-    case "pi":
-      return occursCore(name, e.type) || occursCore(name, e.body);
-    case "let":
-      return occursCore(name, e.type) || occursCore(name, e.value) || occursCore(name, e.body);
-    case "mdata":
-    case "proj":
-      return occursCore(name, e.expr);
-    default:
-      return false;
-  }
+  return find(t, (s) => s.kind === "const" && nameEq(s.name, name)) !== undefined;
 }
 
 /** Strip the inductive's prefix to name a minor premise, e.g. `Nat.succ` → `succ`. */
