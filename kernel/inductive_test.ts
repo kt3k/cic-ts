@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertThrows } from "@std/assert";
+import { assert, assertEquals, assertFalse, assertThrows } from "@std/assert";
 import { anonymousName, nameFromString } from "./name.ts";
 import { levelZero, mkLevelLit, mkLevelParam, mkLevelSucc } from "./level.ts";
 import { type Expr, mkApp, mkAppN, mkBVar, mkConst, mkLambda, mkPi, mkSort } from "./expr.ts";
@@ -159,7 +159,7 @@ Deno.test("inductive: List with a parameter and a recursive field", () => {
   assert(tc.isDefEq(length(oneElem), mkApp(succ, zero)));
 });
 
-Deno.test("inductive: Eq with K-like reduction", () => {
+Deno.test("inductive: Eq reduces on refl but not on a variable proof", () => {
   const u = nameFromString("u");
   const uL = mkLevelParam(u);
   const Eq = nameFromString("Eq");
@@ -193,7 +193,6 @@ Deno.test("inductive: Eq with K-like reduction", () => {
   });
   const recVal = env.find(mkRecName(Eq));
   assertEquals(recVal?.kind, "recursor");
-  assert(recVal?.kind === "recursor" && recVal.k); // K-like
 
   const tc = new TypeChecker(env);
   const recName = mkRecName(Eq);
@@ -212,13 +211,14 @@ Deno.test("inductive: Eq with K-like reduction", () => {
   );
   assert(tc.isDefEq(recOnRefl, zero));
 
-  // K-like reduction: a *variable* proof of `Eq Nat zero zero` still reduces.
+  // No K-like reduction: ι fires only on constructor terms, so a *variable*
+  // proof of `Eq Nat zero zero` does not reduce (pure CIC).
   const h = tc.mkLocalDecl(nameFromString("h"), eqNat(zero));
   const recOnVar = mkAppN(
     mkConst(recName, [lit1, lit1]),
     [natC, zero, motive, zero, zero, h],
   );
-  assert(tc.isDefEq(recOnVar, zero));
+  assertFalse(tc.isDefEq(recOnVar, zero));
 });
 
 Deno.test("inductive rejects non-positive occurrences", () => {

@@ -141,16 +141,17 @@ Deno.test("isDefEq: eta for functions", () => {
   assert(tc.isDefEq(f, etaF));
 });
 
-Deno.test("isDefEq: proof irrelevance", () => {
+Deno.test("isDefEq: no proof irrelevance (pure CIC)", () => {
   let env = baseEnv();
   const P = nameFromString("P");
   env = env.addDecl(mkAxiom(P, [], type0)); // P : Prop
   env = env.addDecl(mkAxiom(nameFromString("h1"), [], mkConst(P))); // h1 : P
   env = env.addDecl(mkAxiom(nameFromString("h2"), [], mkConst(P))); // h2 : P
   const tc = new TypeChecker(env);
-  // two proofs of the same proposition are definitionally equal
-  assert(tc.isDefEq(mkConst(nameFromString("h1")), mkConst(nameFromString("h2"))));
-  // but two distinct Nats are not
+  // distinct proofs of the same proposition are NOT definitionally equal:
+  // the kernel does not implement definitional proof irrelevance
+  assertFalse(tc.isDefEq(mkConst(nameFromString("h1")), mkConst(nameFromString("h2"))));
+  // and two distinct Nats are not either
   assertFalse(tc.isDefEq(zero, mkApp(succ, zero)));
 });
 

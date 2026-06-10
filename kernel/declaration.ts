@@ -91,7 +91,6 @@ export interface RecursorVal {
   readonly numMotives: number;
   readonly numMinors: number;
   readonly rules: readonly RecursorRule[];
-  readonly k: boolean; // K-like reduction (e.g. Eq)
   readonly isUnsafe: boolean;
 }
 

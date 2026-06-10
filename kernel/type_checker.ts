@@ -20,16 +20,15 @@ import {
   mkApp,
   mkAppN,
   mkBVar,
-  mkConst,
   mkFVar,
   mkLambda,
   mkPi,
   mkProj,
   mkSort,
 } from "./expr.ts";
-import { type Level, levelIsEquiv, levelZero, mkLevelIMaxSmart, mkLevelSucc } from "./level.ts";
+import { type Level, levelIsEquiv, mkLevelIMaxSmart, mkLevelSucc } from "./level.ts";
 import { mkNumName, type Name, nameEq, nameFromString, nameToString } from "./name.ts";
-import { constValue, isUnfoldable, recursorMajorIdx, type RecursorVal } from "./declaration.ts";
+import { constValue, isUnfoldable, recursorMajorIdx } from "./declaration.ts";
 import { kernelError } from "./exception.ts";
 import type { Environment } from "./environment.ts";
 
@@ -363,7 +362,7 @@ export class TypeChecker {
     return mkAppN(body, getAppArgs(e));
   }
 
-  /** ι-reduce a recursor applied to a constructor (or K-target). */
+  /** ι-reduce a recursor applied to a constructor. */
   private reduceRecursor(e: Expr): Expr | undefined {
     const recFn = getAppFn(e);
     if (recFn.kind !== "const") return undefined;
@@ -373,12 +372,7 @@ export class TypeChecker {
     const majorIdx = recursorMajorIdx(ci);
     if (majorIdx >= recArgs.length) return undefined;
 
-    let major = recArgs[majorIdx]!;
-    if (ci.k) {
-      const k = this.toCnstrWhenK(ci, major);
-      if (k !== undefined) major = k;
-    }
-    major = this.whnf(major);
+    const major = this.whnf(recArgs[majorIdx]!);
 
     const majorFn = getAppFn(major);
     if (majorFn.kind !== "const") return undefined;
@@ -400,26 +394,6 @@ export class TypeChecker {
       rhs = mkAppN(rhs, recArgs.slice(majorIdx + 1));
     }
     return rhs;
-  }
-
-  /** For K-like recursors, replace the major premise with its unique constructor. */
-  private toCnstrWhenK(rec: RecursorVal, major: Expr): Expr | undefined {
-    const type = this.whnf(this.infer(major));
-    const fn = getAppFn(type);
-    if (fn.kind !== "const" || !nameEq(fn.name, rec.all[0]!)) return undefined;
-    const newCtor = this.mkNullaryCtor(type, rec.numParams);
-    if (newCtor === undefined) return undefined;
-    if (!this.isDefEq(type, this.infer(newCtor))) return undefined;
-    return newCtor;
-  }
-
-  /** Build `Ctor params` for the single-constructor inductive in `type = I params …`. */
-  private mkNullaryCtor(type: Expr, numParams: number): Expr | undefined {
-    const fn = getAppFn(type);
-    if (fn.kind !== "const") return undefined;
-    const ci = this.env.find(fn.name);
-    if (ci === undefined || ci.kind !== "inductive" || ci.ctors.length !== 1) return undefined;
-    return mkAppN(mkConst(ci.ctors[0]!, fn.levels), getAppArgs(type).slice(0, numParams));
   }
 
   /**
@@ -539,9 +513,7 @@ export class TypeChecker {
           structural = false;
       }
     }
-    if (structural) return true;
-
-    return this.isDefEqProofIrrel(a, b);
+    return structural;
   }
 
   /** η: compare a lambda with the η-expansion of a non-lambda. */
@@ -553,21 +525,5 @@ export class TypeChecker {
       lam.info,
     );
     return this.isDefEqCore(lam, expanded);
-  }
-
-  /**
-   * Proof irrelevance: any two proofs of the same proposition are equal. Holds
-   * when `a`'s type is a `Prop` and `b` has a definitionally equal type.
-   */
-  private isDefEqProofIrrel(a: Expr, b: Expr): boolean {
-    try {
-      const ta = this.infer(a);
-      const sort = this.whnf(this.infer(ta));
-      if (sort.kind !== "sort" || !levelIsEquiv(sort.level, levelZero)) return false;
-      const tb = this.infer(b);
-      return this.isDefEq(ta, tb);
-    } catch {
-      return false;
-    }
   }
 }

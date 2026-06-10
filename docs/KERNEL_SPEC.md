@@ -24,10 +24,12 @@ term (`Expr`) and independently verify that it has the type it claims to have."
    recursion. This is **not** full hash-consing — constructors do not intern nodes into a shared
    table — but it gives the same fast-path behavior for large terms. The exact hash values are an
    implementation detail; only determinism and a reasonable distribution matter (see `hash.ts`).
-4. **Conceptual fidelity, not literal fidelity.** The type theory being checked is the same as
-   Lean's CIC (the rules for `Sort`/`imax`, definitional equality, inductives, recursors, quotients,
-   proof irrelevance). The _implementation_ is free to diverge in structure, naming, and module
-   boundaries as long as it accepts/rejects the same terms.
+4. **Conceptual fidelity, not literal fidelity.** The type theory being checked is a pure CIC in the
+   style of Lean (the rules for `Sort`/`imax`, definitional equality, inductives, recursors,
+   quotients) — deliberately _without_ Lean's extensions of definitional equality: no built-in
+   literal arithmetic, no definitional proof irrelevance, and no K-like recursor reduction. The
+   _implementation_ is free to diverge in structure, naming, and module boundaries as long as it
+   accepts/rejects the same terms.
 
 ---
 
@@ -249,8 +251,10 @@ Whether the two are definitionally equal. Outline:
    - `pi` / `lam` → recursively compare binder types and bodies (under an fvar)
    - `proj` → struct and index equal + subterm
 4. **η-expansion** — `fun x => f x` vs `f`, for function types.
-5. **proof irrelevance** — inhabitants of a `Prop` are always equal if their types are defeq.
-6. Retry while interleaving δ-unfolding.
+5. Retry while interleaving δ-unfolding.
+
+There is deliberately no definitional proof irrelevance: two proofs of the same `Prop` are equal
+only if the ordinary rules above make them so.
 
 > `isDefEq` is the crux of termination and soundness.
 
@@ -339,7 +343,9 @@ What it does:
    `rec ... (ctorᵢ args)  ⟶  (apply the i-th minor premise to args and the recursive results)`. WHNF
    uses these.
 4. **Subsingleton / large elimination** — a `Prop` inductive may be eliminated into `Type` only
-   under specific conditions (such as a single constructor), e.g. `Eq`'s K-like reduction.
+   under specific conditions (such as a single constructor). There is no K-like reduction: ι fires
+   only when the major premise reduces to an actual constructor term, so e.g. `Eq.rec` does not
+   reduce on a variable proof.
 
 ---
 
@@ -361,7 +367,7 @@ ill-formed terms." Each kernel test file mirrors a source module (six files, `*_
 | `name_test.ts`         | name equality / hashing / string round-trip                    |
 | `level_test.ts`        | level construction, normalization, equivalence, ordering       |
 | `expr_test.ts`         | constructors, cache flags, traversal, de Bruijn operations     |
-| `type_checker_test.ts` | `infer` / `isDefEq` (β/δ/ζ/η/proof-irrelevance), builtin `Nat` |
+| `type_checker_test.ts` | `infer` / `isDefEq` (β/δ/ζ/η), recursor-based `Nat` arithmetic |
 | `inductive_test.ts`    | inductive verification, recursor + ι-reduction, rejections     |
 | `quot_test.ts`         | the `Quot` family and its computation rule                     |
 
@@ -371,7 +377,7 @@ Emphasis:
    `liftLooseBVars`, against hand-computed expected values.
 2. **Level normalization** — representative cases of `max` / `imax` / `succ`, and the order `leq`.
 3. **Type inference golden cases** — e.g. `fun (x : Nat) => x : Nat → Nat`.
-4. **defeq positive/negative** — each of β / δ / ζ / η / proof-irrelevance.
+4. **defeq positive/negative** — each of β / δ / ζ / η.
 5. **Rejection tests (the heart of soundness)** — type mismatches, universe parameter count
    mismatches, loose BVars, positivity-violating inductives, etc. **always** throw.
 
@@ -405,9 +411,8 @@ All of the following are implemented and covered by tests:
 
 1. **Representation** — `Name`, `Level`, `Expr` with constructors, equality, cached hashing/flags.
 2. **Operations** — traversal combinators, `instantiate` / `abstract`, level normalization.
-3. **Core type checker** — `infer` / `whnf` / `isDefEq` (β/δ/ζ/η/proof-irrelevance) over `Sort` /
-   `Pi` / `Lambda` / `App` / `Const` / `Let`, and `addDecl` for `axiom` / `definition` / `theorem` /
-   `opaque`.
+3. **Core type checker** — `infer` / `whnf` / `isDefEq` (β/δ/ζ/η) over `Sort` / `Pi` / `Lambda` /
+   `App` / `Const` / `Let`, and `addDecl` for `axiom` / `definition` / `theorem` / `opaque`.
 4. **Inductive types** — verification + recursor generation + ι-reduction (`Nat` / `Bool` / `List` /
    `Eq`).
 5. **Quotient types** — the `Quot` family and its computation rule.

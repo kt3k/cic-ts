@@ -288,7 +288,7 @@ function kvmapEq(a: KVMap, b: KVMap): boolean {
 /**
  * Exact structural equality (compares binder names, binder info, and metadata).
  * This is *not* definitional equality (`isDefEq`); that lives in the type
- * checker (Phase 2) and accounts for β/δ/ζ/η/proof-irrelevance.
+ * checker (Phase 2) and accounts for β/δ/ζ/η.
  */
 export function exprEq(a: Expr, b: Expr): boolean {
   if (a === b) return true;

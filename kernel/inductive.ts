@@ -52,7 +52,6 @@ class AddInductive {
   private nindices = 0;
   private resultLevel: Level = levelZero; // set in checkInductiveType
   private elimLevel: Level = levelZero;
-  private kTarget = false;
   private isRec = false;
 
   constructor(private startEnv: Environment, private decl: InductiveDeclaration) {
@@ -280,13 +279,6 @@ class AddInductive {
     }
   }
 
-  // Step 6: K-like reduction target (single ctor, Prop, no fields).
-  private initKTarget(): void {
-    this.kTarget = this.indType.ctors.length === 1 &&
-      isZeroLevel(this.resultLevel) &&
-      countPis(this.indType.ctors[0]!.type) === this.nparams;
-  }
-
   private recLevels(): Level[] {
     return this.elimLevel.kind === "param" ? [this.elimLevel, ...this.levels] : this.levels;
   }
@@ -348,7 +340,6 @@ class AddInductive {
       numMotives: 1,
       numMinors: minors.length,
       rules,
-      k: this.kTarget,
       isUnsafe: this.decl.isUnsafe,
     };
   }
@@ -455,7 +446,6 @@ class AddInductive {
 
     this.tc = new TypeChecker(env);
     this.initElimLevel();
-    this.initKTarget();
     env = env.addConstantUnchecked(this.buildRecursor(env));
     return env;
   }
