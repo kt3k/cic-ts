@@ -66,8 +66,6 @@ function pp(e: Expr, ctx: readonly string[], paren: boolean): string {
       return ppSort(e.level);
     case "const":
       return ppName(e.name, e.levels);
-    case "lit":
-      return e.lit.kind === "natVal" ? e.lit.value.toString() : JSON.stringify(e.lit.value);
     case "proj":
       return `${pp(e.expr, ctx, true)}.${e.idx}`;
     case "mdata":

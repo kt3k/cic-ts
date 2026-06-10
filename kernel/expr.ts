@@ -9,13 +9,9 @@
 
 import { type Level, levelEq, levelHasMVar, levelInstantiate } from "./level.ts";
 import { type Name, nameEq } from "./name.ts";
-import { hashBigInt, hashString, mixHash } from "./hash.ts";
+import { hashBigInt, mixHash } from "./hash.ts";
 
 export type BinderInfo = "default" | "implicit" | "strictImplicit" | "instImplicit";
-
-export type Literal =
-  | { readonly kind: "natVal"; readonly value: bigint }
-  | { readonly kind: "strVal"; readonly value: string };
 
 /** Lightweight metadata map. Semantically transparent; ignored by the kernel. */
 export type KVMap = ReadonlyMap<string, string | bigint | boolean>;
@@ -65,7 +61,6 @@ export type Expr =
       readonly value: Expr;
       readonly body: Expr;
     }
-    | { readonly kind: "lit"; readonly lit: Literal }
     | { readonly kind: "mdata"; readonly data: KVMap; readonly expr: Expr }
     | { readonly kind: "proj"; readonly struct: Name; readonly idx: bigint; readonly expr: Expr }
   );
@@ -79,7 +74,6 @@ const HASH_APP = 0xd3a2646c;
 const HASH_LAM = 0xfd7046c5;
 const HASH_PI = 0xb55a4f09;
 const HASH_LET = 0x1b873593;
-const HASH_LIT = 0xcc9e2d51;
 const HASH_MDATA = 0x2545f491;
 const HASH_PROJ = 0x94d049bb;
 
@@ -243,31 +237,6 @@ export function mkLet(name: Name, type: Expr, value: Expr, body: Expr): Expr {
   };
 }
 
-/** A literal. */
-function mkLit(lit: Literal): Expr {
-  const payload = lit.kind === "natVal" ? hashBigInt(lit.value) : hashString(lit.value);
-  return {
-    kind: "lit",
-    lit,
-    hash: mixHash(payload, HASH_LIT),
-    hasFVar: false,
-    hasMVar: false,
-    hasLevelMVar: false,
-    looseBVarRange: 0,
-  };
-}
-
-/** Natural-number literal. */
-export function mkNatLit(value: bigint): Expr {
-  if (value < 0n) throw new Error(`mkNatLit: negative value ${value}`);
-  return mkLit({ kind: "natVal", value });
-}
-
-/** String literal. */
-export function mkStrLit(value: string): Expr {
-  return mkLit({ kind: "strVal", value });
-}
-
 /** A metadata-annotated term (semantically transparent). */
 export function mkMData(data: KVMap, expr: Expr): Expr {
   return {
@@ -299,10 +268,6 @@ export function mkProj(struct: Name, idx: bigint, expr: Expr): Expr {
 }
 
 // --- Equality ---------------------------------------------------------------
-
-export function literalEq(a: Literal, b: Literal): boolean {
-  return a.kind === b.kind && a.value === (b as typeof a).value;
-}
 
 function levelsEq(a: readonly Level[], b: readonly Level[]): boolean {
   if (a.length !== b.length) return false;
@@ -359,8 +324,6 @@ export function exprEq(a: Expr, b: Expr): boolean {
         exprEq(a.body, bb.body)
       );
     }
-    case "lit":
-      return literalEq(a.lit, (b as typeof a).lit);
     case "mdata":
       return kvmapEq(a.data, (b as typeof a).data) && exprEq(a.expr, (b as typeof a).expr);
     case "proj": {
@@ -412,7 +375,7 @@ export function mapChildren(e: Expr, g: (child: Expr) => Expr): Expr {
     case "proj":
       return mkProj(e.struct, e.idx, g(e.expr));
     default:
-      return e; // bvar, fvar, mvar, sort, const, lit: no subexpressions
+      return e; // bvar, fvar, mvar, sort, const: no subexpressions
   }
 }
 
@@ -440,7 +403,7 @@ export function mapChildrenWithDepth(
     case "proj":
       return mkProj(e.struct, e.idx, g(e.expr, depth));
     default:
-      return e; // bvar, fvar, mvar, sort, const, lit: no subexpressions
+      return e; // bvar, fvar, mvar, sort, const: no subexpressions
   }
 }
 

@@ -7,7 +7,9 @@ const PRELUDE = `inductive Nat : Type where
   | zero : Nat
   | succ : Nat → Nat
 
-axiom Nat.add : Nat → Nat → Nat
+def Nat.add : Nat → Nat → Nat :=
+  fun (a b : Nat) =>
+    Nat.rec.{1} (fun (n : Nat) => Nat) a (fun (n ih : Nat) => Nat.succ ih) b
 
 inductive Eq.{u} (α : Sort u) (a : α) : α → Prop where
   | refl : Eq.{u} α a a`;
@@ -21,7 +23,11 @@ theorem two_add_three : Eq.{1} Nat (Nat.add 2 3) 5 := Eq.refl.{1} Nat 5
 #check Nat.succ Nat.zero`);
   assert(env.contains(nameFromString("two_add_three")));
   assertEquals(checks.length, 2);
-  assertStringIncludes(checks[0]!.text, "two_add_three : Eq.{1} Nat (Nat.add 2 3) 5");
+  // numerals elaborate to Peano constructor terms, so that is how they print
+  assertStringIncludes(
+    checks[0]!.text,
+    "two_add_three : Eq.{1} Nat (Nat.add (Nat.succ (Nat.succ Nat.zero))",
+  );
   assertStringIncludes(checks[1]!.text, "Nat.succ Nat.zero : Nat");
 });
 
@@ -30,8 +36,8 @@ Deno.test("kernel rejections become DriverError with a position", () => {
     () => runModule(`${PRELUDE}\n\ntheorem bogus : Eq.{1} Nat 0 1 := Eq.refl.{1} Nat 0`),
     DriverError,
   );
-  // the failing `theorem` command is on line 10 of the source
-  assertEquals((err as DriverError).pos.line, 10);
+  // the failing `theorem` command is on line 12 of the source
+  assertEquals((err as DriverError).pos.line, 12);
 });
 
 Deno.test("parse errors propagate as ParseError", () => {

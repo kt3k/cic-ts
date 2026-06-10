@@ -9,7 +9,6 @@ import {
   mkBVar,
   mkConst,
   mkLambda,
-  mkNatLit,
   mkPi,
   mkSort,
   nameFromString,
@@ -46,12 +45,16 @@ Deno.test("∀ and arrow desugar to Pi", () => {
   assert(exprEq(elab("Nat → Nat"), mkPi(anonymousName, natC, natC)));
 });
 
-Deno.test("sort sugar and literals", () => {
+Deno.test("sort sugar and numerals", () => {
   assert(exprEq(elab("Type"), mkSort(mkLevelLit(1))));
   assert(exprEq(elab("Type 0"), mkSort(mkLevelLit(1)))); // Type 0 = Sort 1
   assert(exprEq(elab("Prop"), mkSort(levelZero)));
   assert(exprEq(elab("Sort 3"), mkSort(mkLevelLit(3))));
-  assert(exprEq(elab("5"), mkNatLit(5n)));
+  // numerals expand to Peano constructor terms
+  const zero = mkConst(nameFromString("Nat.zero"));
+  const succ = mkConst(nameFromString("Nat.succ"));
+  assert(exprEq(elab("0"), zero));
+  assert(exprEq(elab("2"), mkApp(succ, mkApp(succ, zero))));
 });
 
 Deno.test("free identifiers and universe arguments become constants", () => {
@@ -117,7 +120,9 @@ const PRELUDE = `inductive Nat : Type where
   | zero : Nat
   | succ : Nat → Nat
 
-axiom Nat.add : Nat → Nat → Nat
+def Nat.add : Nat → Nat → Nat :=
+  fun (a b : Nat) =>
+    Nat.rec.{1} (fun (n : Nat) => Nat) a (fun (n ih : Nat) => Nat.succ ih) b
 
 inductive Eq.{u} (α : Sort u) (a : α) : α → Prop where
   | refl : Eq.{u} α a a`;

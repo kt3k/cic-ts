@@ -8,10 +8,20 @@
 // Run with:  deno run --allow-read demos/proof_check.ts
 
 import { Environment } from "../kernel/environment.ts";
-import { mkAxiom, mkTheorem } from "../kernel/declaration.ts";
+import { mkDefinition, mkTheorem } from "../kernel/declaration.ts";
 import { nameFromString } from "../kernel/name.ts";
 import { levelZero, mkLevelLit, mkLevelParam } from "../kernel/level.ts";
-import { type Expr, mkAppN, mkBVar, mkConst, mkNatLit, mkPi, mkSort } from "../kernel/expr.ts";
+import {
+  type Expr,
+  mkApp,
+  mkAppN,
+  mkBVar,
+  mkConst,
+  mkLambda,
+  mkPi,
+  mkSort,
+} from "../kernel/expr.ts";
+import { mkRecName } from "../kernel/inductive.ts";
 import type { KernelError } from "../kernel/exception.ts";
 
 const lit1 = mkLevelLit(1);
@@ -41,8 +51,40 @@ env = env.addInductive({
   }],
 });
 
-// Declare the *type* of Nat.add; the kernel computes it via builtin arithmetic.
-env = env.addDecl(mkAxiom(nameFromString("Nat.add"), [], mkPi(anon, natC, mkPi(anon, natC, natC))));
+// Nat.add defined from the recursor, by recursion on the second argument:
+//   fun (a b : Nat) => Nat.rec.{1} (fun (n : Nat) => Nat) a (fun (n ih : Nat) => Nat.succ ih) b
+const succC = mkConst(natSucc);
+const natAddValue = mkLambda(
+  nameFromString("a"),
+  natC,
+  mkLambda(
+    nameFromString("b"),
+    natC,
+    mkAppN(mkConst(mkRecName(Nat), [lit1]), [
+      mkLambda(nameFromString("n"), natC, natC), // motive
+      mkBVar(1n), // zero case: a
+      mkLambda(
+        nameFromString("n"),
+        natC,
+        mkLambda(nameFromString("ih"), natC, mkApp(succC, mkBVar(0n))),
+      ),
+      mkBVar(0n), // major premise: b
+    ]),
+  ),
+);
+env = env.addDecl(mkDefinition(
+  nameFromString("Nat.add"),
+  [],
+  mkPi(anon, natC, mkPi(anon, natC, natC)),
+  natAddValue,
+));
+
+/** The Peano numeral `n`: `Nat.succ (… (Nat.zero))`. */
+function nat(n: bigint): Expr {
+  let e: Expr = mkConst(natZero);
+  for (let i = 0n; i < n; i++) e = mkApp(succC, e);
+  return e;
+}
 
 // Eq as an inductive: Eq.{u} (α : Sort u) (a : α) : α → Prop, with refl.
 const u = nameFromString("u");
@@ -78,12 +120,13 @@ const add = (a: Expr, b: Expr): Expr => mkAppN(mkConst(nameFromString("Nat.add")
 // ── A true theorem: 2 + 3 = 5, proved by `Eq.refl Nat 5`. ────────────────────
 // Proposition (type): Eq Nat (Nat.add 2 3) 5
 // Proof (term):       Eq.refl Nat 5 : Eq Nat 5 5
-// The kernel reduces `Nat.add 2 3` to `5`, so the two are definitionally equal.
+// The kernel reduces `Nat.add 2 3` to `5` by δ/β/ι, so the two are
+// definitionally equal.
 env = env.addDecl(mkTheorem(
   nameFromString("two_add_three"),
   [],
-  eqNat(add(mkNatLit(2n), mkNatLit(3n)), mkNatLit(5n)),
-  mkAppN(refl, [natC, mkNatLit(5n)]),
+  eqNat(add(nat(2n), nat(3n)), nat(5n)),
+  mkAppN(refl, [natC, nat(5n)]),
 ));
 console.log("✓ proof of (2 + 3 = 5) accepted:", env.contains(nameFromString("two_add_three")));
 
@@ -92,8 +135,8 @@ try {
   env.addDecl(mkTheorem(
     nameFromString("bogus"),
     [],
-    eqNat(mkNatLit(0n), mkNatLit(1n)),
-    mkAppN(refl, [natC, mkNatLit(0n)]), // Eq.refl Nat 0 : Eq Nat 0 0, not Eq Nat 0 1
+    eqNat(nat(0n), nat(1n)),
+    mkAppN(refl, [natC, nat(0n)]), // Eq.refl Nat 0 : Eq Nat 0 0, not Eq Nat 0 1
   ));
   console.log("✗ unreachable — a false proof was accepted!");
 } catch (e) {

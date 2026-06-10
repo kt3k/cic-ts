@@ -49,7 +49,6 @@ export {
   mkLambda,
   mkLet,
   mkMData,
-  mkNatLit,
   mkPi,
   mkProj,
   mkSort,

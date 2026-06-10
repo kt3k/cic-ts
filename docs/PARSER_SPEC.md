@@ -40,7 +40,8 @@ Suggested modules: `syntax.ts` (Surface AST types), `lexer.ts`, `parser.ts`, `el
 - **Comments**: `-- line` and `/- block -/` (nestable).
 - **Identifiers**: Lean-style, Unicode allowed (`α`, `β`, `→`, `∀`, `λ`, …). A dot-separated
   qualified name such as `Nat.succ` is one token.
-- **Numerals**: natural-number literals `0`, `42` (→ `mkNatLit`).
+- **Numerals**: natural numbers `0`, `42` (sugar for the Peano constructor term
+  `Nat.succ (… (Nat.zero))`).
 - **Keywords**: `inductive` `axiom` `def` `theorem` `opaque` `where` `fun` `Sort` `Type` `Prop`
   `max` `imax` `init_quot` `#check`.
 - **Symbols**: `( ) { } : := => → ∀ λ , | .{ } +`. `->` is an alias for `→`; `\fun`/`λ` and
@@ -114,7 +115,9 @@ inductive Nat : Type where
   | zero : Nat
   | succ : Nat → Nat
 
-axiom Nat.add : Nat → Nat → Nat
+def Nat.add : Nat → Nat → Nat :=
+  fun (a b : Nat) =>
+    Nat.rec.{1} (fun (n : Nat) => Nat) a (fun (n ih : Nat) => Nat.succ ih) b
 
 inductive Eq.{u} (α : Sort u) (a : α) : α → Prop where
   | refl : Eq α a a
@@ -124,9 +127,9 @@ theorem two_add_three : Eq.{1} Nat (Nat.add 2 3) 5 := Eq.refl.{1} Nat 5
 #check two_add_three
 ```
 
-(`Eq.{1}` shows the explicit-universe requirement. `Nat.add 2 3` reduces to `5` via the kernel's
-builtin Nat arithmetic, so `Eq.refl.{1} Nat 5 : Eq Nat 5 5` is definitionally equal to the stated
-proposition and is accepted.)
+(`Eq.{1}` shows the explicit-universe requirement. Numerals elaborate to Peano constructor terms,
+and `Nat.add 2 3` reduces to `5` by δ/β/ι alone, so `Eq.refl.{1} Nat 5 : Eq Nat 5 5` is
+definitionally equal to the stated proposition and is accepted.)
 
 ## 7. Error Handling
 

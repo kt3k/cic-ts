@@ -21,11 +21,9 @@ import {
   mkLambda,
   mkLet,
   mkMVar,
-  mkNatLit,
   mkPi,
   mkProj,
   mkSort,
-  mkStrLit,
   replace,
 } from "./expr.ts";
 
@@ -105,11 +103,6 @@ Deno.test("structural equality is exact", () => {
 
   // different body
   assertFalse(exprEq(a, mkLambda(x, nat, mkBVar(1n))));
-
-  // literals
-  assert(exprEq(mkNatLit(5n), mkNatLit(5n)));
-  assertFalse(exprEq(mkNatLit(5n), mkNatLit(6n)));
-  assertFalse(exprEq(mkNatLit(5n), mkStrLit("5")));
 });
 
 Deno.test("equal exprs have equal hashes", () => {

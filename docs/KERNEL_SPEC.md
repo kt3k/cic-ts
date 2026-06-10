@@ -102,7 +102,6 @@ type Expr =
   | { kind: "lam"; name: Name; type: Expr; body: Expr; info: BinderInfo } // fun (n : type) => body
   | { kind: "pi"; name: Name; type: Expr; body: Expr; info: BinderInfo } // (n : type) → body
   | { kind: "let"; name: Name; type: Expr; value: Expr; body: Expr } // let n : type := value; body
-  | { kind: "lit"; lit: Literal } // literal
   | { kind: "mdata"; data: KVMap; expr: Expr } // metadata annotation (semantically transparent)
   | { kind: "proj"; struct: Name; idx: bigint; expr: Expr }; // structure projection
 ```
@@ -112,16 +111,16 @@ Auxiliary types:
 ```ts
 type BinderInfo = "default" | "implicit" | "strictImplicit" | "instImplicit"
 
-type Literal =
-  | { kind: "natVal"; value: bigint }
-  | { kind: "strVal"; value: string }
-
 type KVMap = ...   // key-value map for metadata (ignored during type checking)
 ```
 
-There is a constructor for each node (`mkBVar`, `mkApp`, `mkLambda`, `mkNatLit`, ...). The `mvar`,
-`strVal`-literal, and `mdata` node kinds exist for completeness but are not produced by the surface
-front end; they are exercised by the kernel's own invariant tests.
+There is a constructor for each node (`mkBVar`, `mkApp`, `mkLambda`, ...). The `mvar` and `mdata`
+node kinds exist for completeness but are not produced by the surface front end; they are exercised
+by the kernel's own invariant tests.
+
+Note that there is no literal node: `Nat` values are plain constructor terms
+(`Nat.succ (… (Nat.zero))`), so all computation on them goes through the ordinary reduction rules
+(no kernel-level fast path).
 
 **Cache flags:** every `Expr` carries the following as precomputed values (set by the constructors):
 
@@ -216,7 +215,6 @@ Typing rules per node:
 - **`pi x t b`** — get `infer(t) = Sort u` and, on the body side, `infer(b) = Sort v`; the type is
   `Sort (imax u v)`.
 - **`let x t v b`** — check that `t` is a type, `check(v, t)`, and infer the body.
-- **`lit (natVal _)`** — `Nat`. **`lit (strVal _)`** — `String`.
 - **`proj s i e`** — reduce `infer(e)` to WHNF to get the structure type `S ...`, then return the
   type of the `i`-th field of `S`'s unique constructor, `instantiate`d with the projections of the
   preceding fields (dependent projections).
@@ -233,10 +231,10 @@ Reduce until the head can no longer be reduced. Reduction rules:
 - **ι** — reduction when a recursor is applied to constructor arguments. Includes the `Quot.lift` /
   `Quot.ind` reductions.
 - **proj reduction** — `proj i (ctor ... fieldᵢ ...)  ⟶  fieldᵢ`
-- **Nat literals** — built-in computation on `natVal` literals (`Nat.succ`, `Nat.add`, `Nat.mul`,
-  comparisons reducing to `Bool`, bitwise ops, …), so closed `Nat` arithmetic reduces directly
-  rather than through the recursor. The results follow the standard `Nat` semantics.
 - δ-unfolding is lazy and done only when necessary.
+
+There is deliberately no built-in arithmetic: closed `Nat` arithmetic reduces through the recursor,
+one ι-step per `Nat.succ`. Slow, but exactly the reduction relation of the theory.
 
 ### 5.3 `isDefEq(a, b): boolean` — definitional equality
 
@@ -249,11 +247,10 @@ Whether the two are definitionally equal. Outline:
    - `const n us` vs `const m vs` → names equal and level lists equiv (otherwise δ-unfold and retry)
    - `app` vs `app` → recursively compare function and spine (lazy δ)
    - `pi` / `lam` → recursively compare binder types and bodies (under an fvar)
-   - `lit` → values equal
    - `proj` → struct and index equal + subterm
 4. **η-expansion** — `fun x => f x` vs `f`, for function types.
 5. **proof irrelevance** — inhabitants of a `Prop` are always equal if their types are defeq.
-6. Retry while interleaving δ-unfolding and Nat-literal expansion.
+6. Retry while interleaving δ-unfolding.
 
 > `isDefEq` is the crux of termination and soundness.
 
@@ -414,7 +411,6 @@ All of the following are implemented and covered by tests:
 4. **Inductive types** — verification + recursor generation + ι-reduction (`Nat` / `Bool` / `List` /
    `Eq`).
 5. **Quotient types** — the `Quot` family and its computation rule.
-6. **Built-in literal computation** — fast `Nat` arithmetic on `natVal` literals during WHNF.
 
 Possible future work: cross-checking exported terms against Lean 4, and reading Lean's environment
 export format.

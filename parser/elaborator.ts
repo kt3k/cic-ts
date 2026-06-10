@@ -3,7 +3,7 @@
 // Lowers the surface AST to kernel terms and declarations. Its whole job is:
 //   - name resolution: bound names → de Bruijn indices, free names → `Const`;
 //   - desugaring: `Type`/`Prop` → `Sort`, `A → B` → a non-dependent `Pi`,
-//     numerals → `Nat` literals;
+//     numerals → `Nat.succ (… (Nat.zero))` constructor terms;
 //   - folding declaration parameters into the type (`Pi`) and value (`Lambda`);
 //   - for inductives, prepending parameters to constructor types and qualifying
 //     constructor names (`refl` → `Eq.refl`).
@@ -14,16 +14,7 @@
 // `addDecl`. The elaborator only reports unbound universe parameters and a few
 // structural mistakes, with source positions.
 
-import {
-  type Expr,
-  mkApp,
-  mkBVar,
-  mkConst,
-  mkLambda,
-  mkNatLit,
-  mkPi,
-  mkSort,
-} from "../kernel/expr.ts";
+import { type Expr, mkApp, mkBVar, mkConst, mkLambda, mkPi, mkSort } from "../kernel/expr.ts";
 import {
   type Level,
   levelZero,
@@ -97,7 +88,7 @@ export function elabExpr(e: SExpr, scope: readonly string[], uparams: readonly s
     case "prop":
       return mkSort(levelZero);
     case "num":
-      return mkNatLit(e.value);
+      return natFromNumeral(e.value);
     case "app":
       return mkApp(elabExpr(e.fn, scope, uparams), elabExpr(e.arg, scope, uparams));
     case "arrow": {
@@ -113,6 +104,16 @@ export function elabExpr(e: SExpr, scope: readonly string[], uparams: readonly s
       return foldTelescope(items, body, e.kind === "lam" ? mkLambda : mkPi);
     }
   }
+}
+
+const natZeroC = mkConst(nameFromString("Nat.zero"));
+const natSuccC = mkConst(nameFromString("Nat.succ"));
+
+/** Expand a numeral into its Peano constructor term: `2` → `Nat.succ (Nat.succ Nat.zero)`. */
+function natFromNumeral(value: bigint): Expr {
+  let e = natZeroC;
+  for (let i = 0n; i < value; i++) e = mkApp(natSuccC, e);
+  return e;
 }
 
 interface TeleItem {

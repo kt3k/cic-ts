@@ -2,7 +2,7 @@
 //
 // Implements `infer` / `whnf` / `isDefEq` / `check`, ported from the strategy in
 // Lean's `type_checker.cpp`. Phase 2 scope: Sort, Pi, Lambda, App, Const, Let,
-// FVar, Lit, MData. Inductive recursors (ι) and projections need Phase 3, and
+// FVar, MData. Inductive recursors (ι) and projections need Phase 3, and
 // quotients need Phase 4; those node kinds raise an "unsupported" error here.
 //
 // `infer` is a *checking* inferer: it validates as it goes (argument types,
@@ -17,15 +17,12 @@ import {
   instantiate1,
   instantiateLevelParams,
   liftLooseBVars,
-  type Literal,
-  literalEq,
   mkApp,
   mkAppN,
   mkBVar,
   mkConst,
   mkFVar,
   mkLambda,
-  mkNatLit,
   mkPi,
   mkProj,
   mkSort,
@@ -36,49 +33,7 @@ import { constValue, isUnfoldable, recursorMajorIdx, type RecursorVal } from "./
 import { kernelError } from "./exception.ts";
 import type { Environment } from "./environment.ts";
 
-const natName = nameFromString("Nat");
-const stringName = nameFromString("String");
-const natZeroName = nameFromString("Nat.zero");
-const natSuccName = nameFromString("Nat.succ");
-const boolTrueName = nameFromString("Bool.true");
-const boolFalseName = nameFromString("Bool.false");
 const freshPrefix = nameFromString("_kfv");
-
-// Binary Nat operators the kernel evaluates directly on literals (GMP builtins).
-const POW_MAX_EXP = 1n << 24n; // matches the kernel's ReducePowMaxExp
-const natBinOps: ReadonlyMap<string, (a: bigint, b: bigint) => bigint> = new Map([
-  ["Nat.add", (a, b) => a + b],
-  ["Nat.sub", (a, b) => (a > b ? a - b : 0n)], // truncated subtraction
-  ["Nat.mul", (a, b) => a * b],
-  ["Nat.gcd", gcdBig],
-  ["Nat.mod", (a, b) => (b === 0n ? a : a % b)],
-  ["Nat.div", (a, b) => (b === 0n ? 0n : a / b)],
-  ["Nat.land", (a, b) => a & b],
-  ["Nat.lor", (a, b) => a | b],
-  ["Nat.xor", (a, b) => a ^ b],
-  ["Nat.shiftRight", (a, b) => a >> b],
-]);
-const natBinPreds: ReadonlyMap<string, (a: bigint, b: bigint) => boolean> = new Map([
-  ["Nat.beq", (a, b) => a === b],
-  ["Nat.ble", (a, b) => a <= b],
-]);
-
-function gcdBig(a: bigint, b: bigint): bigint {
-  while (b !== 0n) {
-    [a, b] = [b, a % b];
-  }
-  return a < 0n ? -a : a;
-}
-
-function literalType(lit: Literal): Expr {
-  return mkConst(lit.kind === "natVal" ? natName : stringName);
-}
-
-/** Expand a `Nat` literal into constructor form so a recursor can reduce on it. */
-function natLitToConstructor(value: bigint): Expr {
-  if (value === 0n) return mkConst(natZeroName);
-  return mkApp(mkConst(natSuccName), mkNatLit(value - 1n));
-}
 
 function levelsIsEquiv(as: readonly Level[], bs: readonly Level[]): boolean {
   if (as.length !== bs.length) return false;
@@ -214,8 +169,6 @@ export class TypeChecker {
         return mkSort(mkLevelSucc(e.level));
       case "const":
         return this.inferConst(e.name, e.levels);
-      case "lit":
-        return literalType(e.lit);
       case "mdata":
         return this.infer(e.expr);
       case "app":
@@ -345,11 +298,10 @@ export class TypeChecker {
 
   /**
    * Reduction steps tried (in order) after head reduction; the first that fires
-   * restarts {@link whnf}. The order matches the kernel: builtin `Nat`, then δ,
-   * ι, `Quot`, and projection.
+   * restarts {@link whnf}. The order matches the kernel: δ, ι, `Quot`, and
+   * projection.
    */
   private readonly whnfSteps: ((e: Expr) => Expr | undefined)[] = [
-    (e) => this.reduceNat(e), // builtin Nat arithmetic on literals
     (e) => this.unfoldDefinition(e), // δ
     (e) => this.reduceRecursor(e), // ι
     (e) => this.reduceQuot(e), // Quot.lift / Quot.ind
@@ -398,56 +350,6 @@ export class TypeChecker {
     }
   }
 
-  /** The value of a `Nat` literal or `Nat.zero`, or `undefined` if neither. */
-  private getNatLitExt(e: Expr): bigint | undefined {
-    const w = this.whnf(e);
-    if (w.kind === "lit" && w.lit.kind === "natVal") return w.lit.value;
-    if (w.kind === "const" && nameEq(w.name, natZeroName)) return 0n;
-    return undefined;
-  }
-
-  /**
-   * Evaluate the builtin `Nat` operations on literals (`Nat.succ`, `Nat.add`,
-   * comparisons, bitwise ops, …), matching the kernel's `reduce_nat`. These are
-   * applied before δ-unfolding so the fast path wins over the recursor-based
-   * definitions.
-   */
-  private reduceNat(e: Expr): Expr | undefined {
-    if (e.kind !== "app") return undefined;
-    // Unary: Nat.succ n
-    if (e.fn.kind === "const" && nameEq(e.fn.name, natSuccName)) {
-      const v = this.getNatLitExt(e.arg);
-      return v === undefined ? undefined : mkNatLit(v + 1n);
-    }
-    // Binary: f a b
-    if (e.fn.kind !== "app" || e.fn.fn.kind !== "const") return undefined;
-    const op = nameToString(e.fn.fn.name);
-    const binOp = natBinOps.get(op);
-    const binPred = natBinPreds.get(op);
-    const isPow = op === "Nat.pow";
-    const isShl = op === "Nat.shiftLeft";
-    if (binOp === undefined && binPred === undefined && !isPow && !isShl) {
-      return undefined;
-    }
-    const v1 = this.getNatLitExt(e.fn.arg);
-    if (v1 === undefined) return undefined;
-    const v2 = this.getNatLitExt(e.arg);
-    if (v2 === undefined) return undefined;
-
-    if (binPred !== undefined) {
-      return mkConst(binPred(v1, v2) ? boolTrueName : boolFalseName);
-    }
-    if (isPow) {
-      if (v2 > POW_MAX_EXP) return undefined; // avoid blowing up on huge exponents
-      return mkNatLit(v1 ** v2);
-    }
-    if (isShl) {
-      if (v2 > POW_MAX_EXP) return undefined;
-      return mkNatLit(v1 << v2);
-    }
-    return mkNatLit(binOp!(v1, v2));
-  }
-
   /** δ-unfold the head constant of `e` if it is unfoldable; else `undefined`. */
   private unfoldDefinition(e: Expr): Expr | undefined {
     const fn = getAppFn(e);
@@ -461,7 +363,7 @@ export class TypeChecker {
     return mkAppN(body, getAppArgs(e));
   }
 
-  /** ι-reduce a recursor applied to a constructor (or Nat literal, or K-target). */
+  /** ι-reduce a recursor applied to a constructor (or K-target). */
   private reduceRecursor(e: Expr): Expr | undefined {
     const recFn = getAppFn(e);
     if (recFn.kind !== "const") return undefined;
@@ -477,9 +379,6 @@ export class TypeChecker {
       if (k !== undefined) major = k;
     }
     major = this.whnf(major);
-    if (major.kind === "lit" && major.lit.kind === "natVal") {
-      major = natLitToConstructor(major.lit.value);
-    }
 
     const majorFn = getAppFn(major);
     if (majorFn.kind !== "const") return undefined;
@@ -612,9 +511,6 @@ export class TypeChecker {
         case "fvar":
         case "mvar":
           structural = nameEq(a.id, (b as typeof a).id);
-          break;
-        case "lit":
-          structural = literalEq(a.lit, (b as typeof a).lit);
           break;
         case "app": {
           const bb = b as typeof a;

@@ -1,17 +1,7 @@
 import { assert, assertEquals, assertThrows } from "@std/assert";
 import { anonymousName, nameFromString } from "./name.ts";
 import { levelZero, mkLevelLit, mkLevelParam, mkLevelSucc } from "./level.ts";
-import {
-  type Expr,
-  mkApp,
-  mkAppN,
-  mkBVar,
-  mkConst,
-  mkLambda,
-  mkNatLit,
-  mkPi,
-  mkSort,
-} from "./expr.ts";
+import { type Expr, mkApp, mkAppN, mkBVar, mkConst, mkLambda, mkPi, mkSort } from "./expr.ts";
 import { Environment } from "./environment.ts";
 import { TypeChecker } from "./type_checker.ts";
 import { mkRecName } from "./inductive.ts";
@@ -75,19 +65,6 @@ Deno.test("inductive: Nat.rec reduces (ι) on constructors", () => {
   assert(tc.isDefEq(recId(two), two));
   // and the recursor type is correct: inferring the application yields `motive t`
   assert(tc.isDefEq(tc.infer(recId(two)), natC));
-});
-
-Deno.test("inductive: Nat.rec reduces on Nat literals", () => {
-  const env = addNat(new Environment());
-  const tc = new TypeChecker(env);
-  const x = nameFromString("x");
-  const ih = nameFromString("ih");
-  const motive = mkLambda(x, natC, natC);
-  const sCase = mkLambda(x, natC, mkLambda(ih, natC, mkApp(succ, mkBVar(0n))));
-  const recId = (n: Expr): Expr =>
-    mkAppN(mkConst(mkRecName(Nat), [lit1]), [motive, zero, sCase, n]);
-  const two = mkApp(succ, mkApp(succ, zero));
-  assert(tc.isDefEq(recId(mkNatLit(2n)), two));
 });
 
 Deno.test("inductive: Bool with two nullary constructors", () => {
